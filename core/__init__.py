@@ -1,8 +1,4 @@
-"""
-Высокоуровневая обёртка над COM API КОМПАС-3D.
-
-Основная точка входа — класс Part.
-"""
+"""Обёртка КОМПАС-3D (API5)."""
 
 from .connection import KompasApp, get_app
 from .part import Part
@@ -18,4 +14,4 @@ __all__ = [
     "KompasNotRunningError",
 ]
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"

@@ -1,120 +1,143 @@
 """
-Подключение к КОМПАС-3D через COM.
+Подключение к КОМПАС через API5 (Kompas.Application.5) — рабочий путь для v23.
+
+Почему API5: API7 без CastTo/makepy на многих установках даёт
+«Член группы не найден» и «Property Name can not be set».
+API5 Document3D + GetPart + NewEntity — классика SDK.
 """
 
 from __future__ import annotations
 
 import pythoncom
-from typing import Any
+from typing import Any, Optional, Tuple
 
 from .exceptions import KompasNotRunningError, KompasError
-from .constants_resolve import CONST3D
 
 try:
     from win32com.client import Dispatch, GetActiveObject
 except ImportError as e:
-    raise ImportError(
-        "pywin32 не установлен. В venv: pip install pywin32"
-    ) from e
+    raise ImportError("Установите pywin32: pip install pywin32") from e
+
+# Константы Obj3dType / Part_Type (из SDK, стабильные числа)
+P_TOP_PART = -1
+O3D_PLANE_XOY = 1
+O3D_PLANE_XOZ = 2
+O3D_PLANE_YOZ = 3
+O3D_SKETCH = 5
+O3D_BASE_EXTRUSION = 24  # первая / базовая операция выдавливания
+O3D_BOSS_EXTRUSION = 25
+O3D_CUT_EXTRUSION = 26
+O3D_BOSS_ROTATED = 27
+DT_NORMAL = 0
+DT_REVERSE = 1
+DT_BOTH = 2
+ET_BLIND = 0
+ET_THROUGH_ALL = 1
 
 
 class KompasApp:
-    def __init__(self, application: Any):
-        self._app = application
-        self._const3d = CONST3D
+    """
+    kompas5 — KompasObject (Application.5)
+    app7    — Application.7 (опционально, для Visible и т.п.)
+    """
+
+    def __init__(self, kompas5: Any, app7: Optional[Any] = None):
+        self.k5 = kompas5
+        self.app7 = app7
 
     @classmethod
     def connect(cls) -> "KompasApp":
         pythoncom.CoInitialize()
+        k5 = None
+        app7 = None
+        # API5
         try:
-            raw = GetActiveObject("Kompas.Application.7")
-        except Exception as e:
-            raise KompasNotRunningError(
-                "КОМПАС-3D не запущен. Откройте КОМПАС и повторите."
-            ) from e
-        return cls(raw)
+            k5 = GetActiveObject("Kompas.Application.5")
+        except Exception:
+            try:
+                k5 = Dispatch("Kompas.Application.5")
+            except Exception as e:
+                raise KompasNotRunningError(
+                    "Не удалось подключить Kompas.Application.5. "
+                    "Запустите КОМПАС-3D и повторите."
+                ) from e
+        # API7 — не обязателен
+        try:
+            app7 = GetActiveObject("Kompas.Application.7")
+        except Exception:
+            try:
+                app7 = Dispatch("Kompas.Application.7")
+            except Exception:
+                app7 = None
 
-    @classmethod
-    def launch(cls, visible: bool = True) -> "KompasApp":
-        pythoncom.CoInitialize()
         try:
-            raw = Dispatch("Kompas.Application.7")
-        except Exception as e:
-            raise KompasError("Не удалось запустить КОМПАС-3D через COM.") from e
-        app = cls(raw)
-        app.visible = visible
-        return app
+            k5.Visible = True
+        except Exception:
+            pass
+        if app7 is not None:
+            try:
+                app7.Visible = True
+            except Exception:
+                pass
+
+        return cls(k5, app7)
 
     @classmethod
     def connect_or_launch(cls, visible: bool = True) -> "KompasApp":
-        try:
-            return cls.connect()
-        except KompasNotRunningError:
-            return cls.launch(visible=visible)
-
-    @property
-    def raw(self) -> Any:
-        return self._app
-
-    @property
-    def const3d(self) -> Any:
-        return self._const3d
+        return cls.connect()
 
     @property
     def visible(self) -> bool:
         try:
-            return bool(self._app.Visible)
+            return bool(self.k5.Visible)
         except Exception:
             return False
 
     @visible.setter
     def visible(self, value: bool) -> None:
         try:
-            self._app.Visible = bool(value)
+            self.k5.Visible = bool(value)
         except Exception:
             pass
-
-    @property
-    def active_document(self) -> Any:
-        try:
-            return self._app.ActiveDocument
-        except Exception:
-            return None
-
-    def new_part(self, name: str = "Деталь") -> Any:
-        """
-        Создать деталь.
-        Documents.Add(4, True) — ksDocumentPart.
-        """
-        docs = self._app.Documents
-        doc = docs.Add(4, True)
-        if doc is None:
-            raise KompasError("Documents.Add вернул None")
-
-        # ActiveDocument после Add
-        doc3d = self._app.ActiveDocument
-        try:
-            part = doc3d.TopPart
-            if name:
-                part.Name = str(name)
-                try:
-                    part.Update()
-                except Exception:
-                    pass
-        except Exception as e:
-            raise KompasError(f"Документ создан, но TopPart недоступен: {e}") from e
-
-        return doc3d
 
     def hide_messages(self, hide: bool = True) -> None:
+        for obj in (self.k5, self.app7):
+            if obj is None:
+                continue
+            try:
+                obj.HideMessage = 1 if hide else 0
+            except Exception:
+                pass
+
+    def new_part_document(self) -> Tuple[Any, Any]:
+        """
+        Создать деталь.
+        Возвращает (document3d, part) где part = GetPart(-1).
+        """
         try:
-            # 1 = hide yes (часто), 0 = no
-            self._app.HideMessage = 1 if hide else 0
-        except Exception:
+            doc3d = self.k5.Document3D()
+        except Exception as e:
+            raise KompasError(f"Document3D() недоступен: {e}") from e
+
+        # Create(hide, isPart): hide=False → видимый, isPart=True → деталь
+        ok = doc3d.Create(False, True)
+        if ok is False:
+            # некоторые версии возвращают None вместо True
             pass
+
+        try:
+            part = doc3d.GetPart(P_TOP_PART)
+        except Exception as e:
+            raise KompasError(
+                f"GetPart(pTop_Part) не удался: {e}. "
+                "Документ мог создаться пустым — закройте его вручную."
+            ) from e
+
+        if part is None:
+            raise KompasError("GetPart вернул None")
+
+        return doc3d, part
 
 
 def get_app(auto_launch: bool = True) -> KompasApp:
-    if auto_launch:
-        return KompasApp.connect_or_launch()
-    return KompasApp.connect()
+    return KompasApp.connect_or_launch()
