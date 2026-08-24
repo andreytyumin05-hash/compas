@@ -13,14 +13,12 @@ from typing import List, Dict, Optional
 
 from dotenv import load_dotenv
 
-# Грузим .env из корня проекта (рядом с этим файлом: ../.env)
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _ENV_PATH = _PROJECT_ROOT / ".env"
 
 if _ENV_PATH.exists():
     load_dotenv(_ENV_PATH)
 else:
-    # На всякий случай — текущая папка
     load_dotenv()
 
 
@@ -93,17 +91,19 @@ class OpenRouterLLM(BaseLLM):
 
 def _missing_key_message(provider: str, env_var: str, url: str) -> str:
     env_hint = (
-        f"Файл .env {'найден: ' + str(_ENV_PATH) if _ENV_PATH.exists() else 'НЕ найден по пути ' + str(_ENV_PATH)}"
+        f"Файл .env найден: {_ENV_PATH}"
+        if _ENV_PATH.exists()
+        else f"Файл .env НЕ найден: {_ENV_PATH}"
     )
     return (
         f"{env_var} не задан.\n"
         f"{env_hint}\n\n"
         f"Сделайте так:\n"
         f"  1) copy .env.example .env\n"
-        f"  2) Откройте .env и пропишите:\n"
+        f"  2) В .env укажите:\n"
         f"       LLM_PROVIDER={provider}\n"
         f"       {env_var}=ваш_ключ\n"
-        f"  3) Ключ взять здесь: {url}"
+        f"  3) Ключ: {url}"
     )
 
 
@@ -121,7 +121,8 @@ def get_llm_client(
             raise ValueError(
                 _missing_key_message("groq", "GROQ_API_KEY", "https://console.groq.com")
             )
-        return GroqLLM(key, model or "llama-3.3-70b-versatile")
+        # llama-3.1-8b-instant стабильнее доступен на free-тарифе
+        return GroqLLM(key, model or "llama-3.1-8b-instant")
 
     if provider == "gemini":
         key = api_key or os.getenv("GEMINI_API_KEY", "")
