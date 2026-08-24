@@ -1,0 +1,19 @@
+1команды в терминале выполняются через 'bash'
+
+2(venv) PS D:\учеба\ML_study\compas> python -m agent.runner "Втулка: наружный диаметр 40, внутренний 20, длина 50"
+<frozen runpy>:128: RuntimeWarning: 'agent.runner' found in sys.modules after import of package 'agent', but prior to execution of 'agent.runner'; this may result in unpredictable behaviour
+Задача: Втулка: наружный диаметр 40, внутренний 20, длина 50
+
+Ошибка: Error code: 404 - {'error': {'message': 'The model `llama-3.3-70b-versatile` does not 
+exist or you do not have access to it.', 'type': 'invalid_request_error', 'code': 
+'model_not_found'}}
+
+3(venv) PS D:\учеба\ML_study\compas> python -c "from core import get_app; a = get_app(auto_launch=False); print('OK visible=', a.visible)"
+OK visible= True
+
+4 anry2@LAPTOP-PONNG039 MINGW64 /d/учеба/ML_study/compas (dev)
+$ python --version
+Python 3.14.0
+(venv) 
+
+5 версия компас - 23
