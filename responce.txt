@@ -35,3 +35,25 @@
   10 # Создадим квадратный внутренний конец втулки                                                
   11 rectangle = Rectangle(sketch, width=10, height=10)                                           
   12 rectangle.move(down=10, right=20) 
+
+  2 вывод модели (qwen/qwen3.6-27b)
+  (venv) PS D:\учеба\ML_study\compas> python -m agent.runner "Втулка: наружный диаметр 40, внутренний 20, длина 50"
+Задача: Втулка: наружный диаметр 40, внутренний 20, длина 50
+
+Сгенерированный код:
+
+   1 from core import Part                                                                        
+   2                                                                                              
+   3 part = Part.create("Втулка")                                                                 
+   4                                                                                              
+   5 # Базовый цилиндр (наружный диаметр 40 мм -> радиус 20 мм)                                   
+   6 with part.sketch("xy") as sk_base:                                                           
+   7     sk_base.circle(0, 0, 20)                                                                 
+   8 part.extrude(sk_base, depth=50.0)                                                            
+   9                                                                                              
+  10 # Сквозное отверстие (внутренний диаметр 20 мм -> радиус 10 мм)                              
+  11 with part.sketch("xy") as sk_hole:                                                           
+  12     sk_hole.circle(0, 0, 10)                                                                 
+  13 part.cut(sk_hole, through_all=True)                                                          
+  14                                                                                              
+  15 part.update()  
