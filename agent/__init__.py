@@ -1,8 +1,4 @@
-"""
-Агент для генерации моделей КОМПАС-3D.
-"""
-
-# Не импортируем runner здесь — иначе python -m agent.runner даёт RuntimeWarning
+"""Агент генерации моделей КОМПАС-3D."""
 
 __all__ = ["Agent", "get_llm_client"]
 

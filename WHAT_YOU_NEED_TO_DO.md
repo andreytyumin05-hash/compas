@@ -1,46 +1,30 @@
-# Что сделать сейчас
+# Ветка `agent-v2` (эксперимент)
 
-## Ситуация
+Стабильная рабочая ветка по-прежнему **`dev`**.
+Сюда внесены усиленный промпт, валидация кода и `agent.build`.
 
-- КОМПАС COM — **OK**
-- Ключ Groq — **работает** (usage растёт)
-- Модели `llama-3.1-8b-instant` и `llama-3.3-70b-versatile` — **нет доступа** (404)
-
-## Шаги
+## Команды
 
 ```powershell
-git pull origin dev
+git checkout agent-v2
+git pull origin agent-v2
 
-# 1) Посмотреть, какие модели реально доступны твоему ключу
+# только сгенерировать + проверить API
+python -m agent.runner "Фланец Ø100 толщина 12, центральное отверстие Ø30, 4 отверстия Ø11 на диаметре 70"
+
+# сгенерировать и сразу построить в КОМПАСе (КОМПАС лучше заранее открыть)
+python -m agent.build "Втулка наружный 40 внутренний 20 длина 50"
+
+# список моделей Groq
 python -m agent.list_models
 ```
 
-В выводе будет список. Возьми **любую chat-модель** (не whisper, не guard) и пропиши в `.env`:
-
+В `.env` для кода лучше:
 ```env
-LLM_PROVIDER=groq
-GROQ_API_KEY=твой_ключ
-LLM_MODEL=сюда_id_из_списка
+LLM_MODEL=qwen/qwen3.6-27b
 ```
 
-Потом:
-
+Если что-то сломается — вернись на `dev`:
 ```powershell
-python -m agent.runner "Втулка: наружный диаметр 40, внутренний 20, длина 50"
+git checkout dev
 ```
-
-## Если list_models пустой
-
-Значит у ключа странные ограничения. Тогда проще перейти на **Gemini** (бесплатно):
-
-1. Ключ: https://aistudio.google.com
-2. В `.env`:
-```env
-LLM_PROVIDER=gemini
-GEMINI_API_KEY=твой_ключ
-LLM_MODEL=gemini-2.0-flash
-```
-
-И снова `python -m agent.runner "..."`.
-
-Пришли вывод `list_models` или новый `responce.txt`.
