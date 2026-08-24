@@ -9,7 +9,7 @@ from __future__ import annotations
 import os
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Sequence
 
 from dotenv import load_dotenv
 
@@ -20,6 +20,18 @@ if _ENV_PATH.exists():
     load_dotenv(_ENV_PATH)
 else:
     load_dotenv()
+
+# Кандидаты для Groq (в порядке предпочтения). Реальные id подтянем с API.
+_GROQ_FALLBACKS = (
+    "llama-3.1-8b-instant",
+    "llama-3.3-70b-versatile",
+    "llama3-8b-8192",
+    "llama3-70b-8192",
+    "gemma2-9b-it",
+    "mixtral-8x7b-32768",
+    "openai/gpt-oss-20b",
+    "openai/gpt-oss-120b",
+)
 
 
 class BaseLLM(ABC):
@@ -34,14 +46,31 @@ class GroqLLM(BaseLLM):
 
         self.client = Groq(api_key=api_key)
         self.model = model
+        self.api_key = api_key
 
     def chat(self, messages: List[Dict[str, str]], temperature: float = 0.2) -> str:
-        resp = self.client.chat.completions.create(
-            model=self.model,
-            messages=messages,
-            temperature=temperature,
-        )
-        return resp.choices[0].message.content or ""
+        from groq import BadRequestError, NotFoundError, APIStatusError
+
+        try:
+            resp = self.client.chat.completions.create(
+                model=self.model,
+                messages=messages,
+                temperature=temperature,
+            )
+            return resp.choices[0].message.content or ""
+        except Exception as e:
+            # Если модель недоступна — пробуем другие с аккаунта
+            msg = str(e).lower()
+            if "model" in msg and ("not found" in msg or "does not exist" in msg or "404" in msg):
+                available = list_groq_models(self.api_key)
+                raise RuntimeError(
+                    f"Модель '{self.model}' недоступна на твоём ключе Groq.\n\n"
+                    f"Доступные модели на аккаунте:\n"
+                    + ("\n".join(f"  - {m}" for m in available) if available else "  (список пуст / не удалось получить)")
+                    + "\n\nПропиши в .env одну из них, например:\n"
+                    f"  LLM_MODEL={available[0] if available else 'см. список выше'}"
+                ) from e
+            raise
 
 
 class GeminiLLM(BaseLLM):
@@ -89,6 +118,48 @@ class OpenRouterLLM(BaseLLM):
         return resp.choices[0].message.content or ""
 
 
+def list_groq_models(api_key: str) -> List[str]:
+    """Список id моделей, доступных этому ключу."""
+    try:
+        from groq import Groq
+
+        client = Groq(api_key=api_key)
+        models = client.models.list()
+        ids = sorted(
+            m.id
+            for m in models.data
+            if m.id and not m.id.startswith("whisper")
+        )
+        return ids
+    except Exception:
+        return []
+
+
+def pick_groq_model(api_key: str, preferred: Optional[str] = None) -> str:
+    """
+    Выбрать рабочую модель:
+    1) preferred, если есть в списке API
+    2) первый из fallback, который есть в списке
+    3) первая модель из API
+    4) preferred как есть (пусть упадёт с понятной ошибкой)
+    """
+    available = list_groq_models(api_key)
+    if preferred and (not available or preferred in available):
+        return preferred
+
+    if available:
+        for cand in _GROQ_FALLBACKS:
+            if cand in available:
+                return cand
+        # любая chat-подобная
+        for m in available:
+            if "whisper" not in m.lower() and "guard" not in m.lower():
+                return m
+        return available[0]
+
+    return preferred or _GROQ_FALLBACKS[0]
+
+
 def _missing_key_message(provider: str, env_var: str, url: str) -> str:
     env_hint = (
         f"Файл .env найден: {_ENV_PATH}"
@@ -121,8 +192,8 @@ def get_llm_client(
             raise ValueError(
                 _missing_key_message("groq", "GROQ_API_KEY", "https://console.groq.com")
             )
-        # llama-3.1-8b-instant стабильнее доступен на free-тарифе
-        return GroqLLM(key, model or "llama-3.1-8b-instant")
+        chosen = pick_groq_model(key, preferred=model)
+        return GroqLLM(key, chosen)
 
     if provider == "gemini":
         key = api_key or os.getenv("GEMINI_API_KEY", "")
