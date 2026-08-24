@@ -1,54 +1,42 @@
-(venv) PS D:\учеба\ML_study\compas> python -m agent.runner "Фланец O100 толщина 12, центральное отверстие O30, 4 отверстия O11 на диаметре 70"
-Задача: Фланец Ø100 толщина 12, центральное отверстие Ø30, 4 отверстия Ø11 на диаметре 70
-
-Сгенерированный код:
-
-   1 from core import Part                                                                        
-   2                                                                                              
-   3    part = Part.create("Фланец")                                                              
-   4                                                                                              
-   5    # Основа фланца                                                                           
-   6    with part.sketch("xy") as sk_base:                                                        
-   7        sk_base.circle(0, 0, 50.0)                                                            
-   8    part.extrude(sk_base, depth=12.0)                                                         
-   9                                                                                              
-  10    # Центральное отверстие                                                                   
-  11    with part.sketch("xy") as sk_center:                                                      
-  12        sk_center.circle(0, 0, 15.0)                                                          
-  13    part.cut(sk_center, through_all=True)                                                     
-  14                                                                                              
-  15    # Крепёжные отверстия                                                                     
-  16    with part.sketch("xy") as sk_bolts:                                                       
-  17        sk_bolts.circle(35.0, 0.0, 5.5)                                                       
-  18        sk_bolts.circle(0.0, 35.0, 5.5)                                                       
-  19        sk_bolts.circle(-35.0, 0.0, 5.5)                                                      
-  20        sk_bolts.circle(0.0, -35.0, 5.5)                                                      
-  22                                                                                              
-  23    part.update()                                                                             
-
-Проверка API: OK
-(venv) PS D:\учеба\ML_study\compas> python -m agent.build "Втулка наружный 40 внутренний 20 длина 
-50"
+(venv)                               
+(venv) PS D:\учеба\ML_study\compas> python -m agent.build "Втулка наружный 40 внутренний 20 длина 50"
 Задача: Втулка наружный 40 внутренний 20 длина 50
 
 Код:
 
-   1 from core import Part                                                                        
-   2                                                                                              
-   3 part = Part.create("Втулка_40x20x50")                                                        
-   4                                                                                              
-   5 # Наружный цилиндр                                                                           
-   6 sk_outer = part.sketch("xy")                                                                 
-   7 sk_outer.circle(0, 0, 20.0)                                                                  
-   8 part.extrude(sk_outer, depth=50.0)                                                           
-   9                                                                                              
-  10 # Внутренний сквозной вырез                                                                  
-  11 sk_inner = part.sketch("xy")                                                                 
-  12 sk_inner.circle(0, 0, 10.0)                                                                  
-  13 part.cut(sk_inner, through_all=True)                                                         
-  14                                                                                              
-  15 part.update()                                                                                
+   1 from core import Part                                                                                          
+   2                                                                                                                
+   3 part = Part.create("Втулка")                                                                                   
+   4                                                                                                                
+   5 with part.sketch("xy") as sk_outer:                                                                            
+   6     sk_outer.circle(0, 0, 20.0)                                                                                
+   7 part.extrude(sk_outer, depth=50.0)                                                                             
+   8                                                                                                                
+   9 with part.sketch("xy") as sk_inner:                                                                            
+  10     sk_inner.circle(0, 0, 10.0)                                                                                
+  12                                                                                                                
+  13 part.update()                                                                                                  
 
 Запуск в КОМПАС…
-Ошибка: This COM object can not automate the makepy process - please run makepy manually for this 
-object
+Ошибка: (-2147352573, 'Член группы не найден.', None, None)
+(venv) PS D:\учеба\ML_study\compas> python -m agent.build "Втулка наружный 40 внутренний 20 длина 50"
+Задача: Втулка наружный 40 внутренний 20 длина 50
+
+Код:
+
+   1 from core import Part                                                                                          
+   2                                                                                                                
+   3 part = Part.create("Втулка")                                                                                   
+   4                                                                                                                
+   5 with part.sketch("xy") as sk:                                                                                  
+   6     sk.circle(0, 0, 20.0)                                                                                      
+   7 part.extrude(sk, depth=50.0)                                                                                   
+   8                                                                                                                
+   9 with part.sketch("xy") as sk:                                                                                  
+  10     sk.circle(0, 0, 10.0)                                                                                      
+  11 part.cut(sk, through_all=True)                                                                                 
+  12                                                                                                                
+  13 part.update()                                                                                                  
+
+Запуск в КОМПАС…
+Ошибка: Документ создан, но TopPart недоступен: Property '<unknown>.Name' can not be set.
