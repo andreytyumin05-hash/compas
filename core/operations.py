@@ -1,12 +1,12 @@
 """
-Формообразующие операции (late binding).
+Выдавливание / вырезание через NewEntity (предпочтительно) или Extrusions.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 
-from .comutil import safe_cast
+from .constants_resolve import CONST3D
 from .exceptions import KompasOperationError
 
 if TYPE_CHECKING:
@@ -14,11 +14,26 @@ if TYPE_CHECKING:
     from .sketch import Sketch
 
 
-def _get_extrusions(container: Any) -> Any:
-    ext = getattr(container, "Extrusions", None)
-    if ext is None:
-        raise KompasOperationError("У детали нет коллекции Extrusions")
-    return ext
+def _new_entity(part: "Part", type_id: int) -> Any:
+    try:
+        return part._top_part.NewEntity(type_id)
+    except Exception as e:
+        raise KompasOperationError(f"NewEntity({type_id}) не удался: {e}") from e
+
+
+def _finish_entity(entity: Any, part: "Part") -> None:
+    try:
+        entity.Create()
+    except Exception:
+        pass
+    try:
+        entity.Update()
+    except Exception:
+        pass
+    try:
+        part._top_part.Update()
+    except Exception:
+        pass
 
 
 def extrude(
@@ -28,30 +43,71 @@ def extrude(
     direction: str = "normal",
     both_directions: bool = False,
 ) -> Any:
-    const = part.app.const3d
-    container = part._container
+    type_id = CONST3D.get("o3d_bossExtrusion")
+    dt = CONST3D.get("dtBoth" if both_directions else ("dtReverse" if direction == "reverse" else "dtNormal"))
+    et = CONST3D.get("etBlind")
 
     try:
-        extrusions = _get_extrusions(container)
-        boss = extrusions.Add(const.o3d_bossExtrusion)
-        boss = safe_cast(boss, "IExtrusion")
-        boss.Sketch = sketch.entity
+        entity = _new_entity(part, type_id)
+        definition = entity.GetDefinition()
 
-        if both_directions:
-            boss.Direction = const.dtBoth
-            boss.SetSideParameters(True, const.etBlind, float(depth), 0.0, False, None)
-            boss.SetSideParameters(False, const.etBlind, float(depth), 0.0, False, None)
-        else:
-            boss.Direction = (
-                const.dtReverse if direction == "reverse" else const.dtNormal
-            )
-            boss.SetSideParameters(True, const.etBlind, float(depth), 0.0, False, None)
+        # привязка эскиза
+        try:
+            definition.SetSketch(sketch.entity)
+        except Exception:
+            try:
+                definition.Sketch = sketch.entity
+            except Exception as e:
+                raise KompasOperationError(f"SetSketch: {e}") from e
 
-        boss.Update()
-        part._top_part.Update()
-        return boss
+        # направление и глубина — разные сигнатуры API
+        applied = False
+        try:
+            definition.directionType = dt
+        except Exception:
+            try:
+                definition.Direction = dt
+            except Exception:
+                pass
+
+        # SetSideParam / SetSideParameters
+        for method_name in ("SetSideParameters", "SetSideParam"):
+            method = getattr(definition, method_name, None)
+            if not callable(method):
+                continue
+            try:
+                # частый вариант API7
+                method(True, et, float(depth), 0.0, False, None)
+                applied = True
+                break
+            except Exception:
+                try:
+                    method(True, et, float(depth))
+                    applied = True
+                    break
+                except Exception:
+                    continue
+
+        if not applied:
+            # ksExtrusionParam
+            try:
+                prop = definition.ExtrusionParam()
+                prop.depthNormal = float(depth)
+                try:
+                    prop.direction = dt
+                except Exception:
+                    pass
+            except Exception as e:
+                raise KompasOperationError(
+                    f"Не задать глубину выдавливания: {e}"
+                ) from e
+
+        _finish_entity(entity, part)
+        return entity
+    except KompasOperationError:
+        raise
     except Exception as e:
-        raise KompasOperationError(f"Ошибка выдавливания: {e}") from e
+        raise KompasOperationError(f"Выдавливание: {e}") from e
 
 
 def cut_extrude(
@@ -61,54 +117,74 @@ def cut_extrude(
     through_all: bool = False,
     direction: str = "normal",
 ) -> Any:
-    const = part.app.const3d
-    container = part._container
+    type_id = CONST3D.get("o3d_cutExtrusion")
+    dt = CONST3D.get("dtBoth" if through_all else ("dtReverse" if direction == "reverse" else "dtNormal"))
+    et = CONST3D.get("etThroughAll" if through_all else "etBlind")
 
     try:
-        extrusions = _get_extrusions(container)
-        cut = extrusions.Add(const.o3d_cutExtrusion)
-        cut = safe_cast(cut, "IExtrusion")
-        cut.Sketch = sketch.entity
+        entity = _new_entity(part, type_id)
+        definition = entity.GetDefinition()
 
-        if through_all:
-            cut.Direction = const.dtBoth
-            cut.SetSideParameters(True, const.etThroughAll, 0.0, 0.0, False, None)
-        else:
-            cut.Direction = (
-                const.dtReverse if direction == "reverse" else const.dtNormal
-            )
-            cut.SetSideParameters(True, const.etBlind, float(depth), 0.0, False, None)
-
-        cut.Update()
-        part._top_part.Update()
-        return cut
-    except Exception as e:
-        raise KompasOperationError(f"Ошибка вырезания: {e}") from e
-
-
-def revolve(
-    part: "Part",
-    sketch: "Sketch",
-    angle: float = 360.0,
-    axis_point1: Optional[tuple] = None,
-    axis_point2: Optional[tuple] = None,
-) -> Any:
-    const = part.app.const3d
-    container = part._container
-
-    try:
-        rotations = getattr(container, "Rotations", None)
-        if rotations is None:
-            raise KompasOperationError("Нет коллекции Rotations")
-        rot = rotations.Add(const.o3d_bossRotated)
-        rot = safe_cast(rot, "IRotation")
-        rot.Sketch = sketch.entity
         try:
-            rot.Angle = float(angle)
+            definition.SetSketch(sketch.entity)
+        except Exception:
+            definition.Sketch = sketch.entity
+
+        try:
+            definition.directionType = dt
+        except Exception:
+            try:
+                definition.Direction = dt
+            except Exception:
+                pass
+
+        applied = False
+        depth_val = 0.0 if through_all else float(depth)
+        for method_name in ("SetSideParameters", "SetSideParam"):
+            method = getattr(definition, method_name, None)
+            if not callable(method):
+                continue
+            try:
+                method(True, et, depth_val, 0.0, False, None)
+                applied = True
+                break
+            except Exception:
+                try:
+                    method(True, et, depth_val)
+                    applied = True
+                    break
+                except Exception:
+                    continue
+
+        if not applied and not through_all:
+            try:
+                prop = definition.ExtrusionParam()
+                prop.depthNormal = float(depth)
+            except Exception as e:
+                raise KompasOperationError(f"Не задать параметры выреза: {e}") from e
+
+        _finish_entity(entity, part)
+        return entity
+    except KompasOperationError:
+        raise
+    except Exception as e:
+        raise KompasOperationError(f"Вырезание: {e}") from e
+
+
+def revolve(part: "Part", sketch: "Sketch", angle: float = 360.0) -> Any:
+    type_id = CONST3D.get("o3d_bossRotated")
+    try:
+        entity = _new_entity(part, type_id)
+        definition = entity.GetDefinition()
+        try:
+            definition.SetSketch(sketch.entity)
+        except Exception:
+            definition.Sketch = sketch.entity
+        try:
+            definition.Angle = float(angle)
         except Exception:
             pass
-        rot.Update()
-        part._top_part.Update()
-        return rot
+        _finish_entity(entity, part)
+        return entity
     except Exception as e:
-        raise KompasOperationError(f"Ошибка вращения: {e}") from e
+        raise KompasOperationError(f"Вращение: {e}") from e
