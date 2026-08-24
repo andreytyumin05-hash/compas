@@ -1,8 +1,37 @@
-(venv) PS D:\учеба\ML_study\compas> python -m agent.runner "Втулка: наружный диаметр 40, внутренний 20, длина 50"
-<frozen runpy>:128: RuntimeWarning: 'agent.runner' found in sys.modules after import of package 'agent', but prior to execution of 'agent.runner'; this may result in unpredictable behaviour
+(venv) PS D:\учеба\ML_study\compas> python -m agent.list_models
+Доступно моделей: 11
+
+  allam-2-7b
+  canopylabs/orpheus-arabic-saudi
+  canopylabs/orpheus-v1-english
+  groq/compound
+  groq/compound-mini
+  meta-llama/llama-prompt-guard-2-22m
+  meta-llama/llama-prompt-guard-2-86m
+  openai/gpt-oss-120b
+  openai/gpt-oss-20b
+  openai/gpt-oss-safeguard-20b
+  qwen/qwen3.6-27b
+
+Пропиши в .env, например:
+  LLM_MODEL=allam-2-7b
+
+добавил как и предложили аламу пока что 
+
+АГЕНТ ОТВЕТИЛ!!!!! 
 Задача: Втулка: наружный диаметр 40, внутренний 20, длина 50
 
-Ошибка: Error code: 404 - {'error': {'message': 'The model `llama-3.1-8b-instant` does not exist 
-or you do not have access to it.', 'type': 'invalid_request_error', 'code': 'model_not_found'}}
+Сгенерированный код:
 
-на сайте грока я вижу usage- 1 api call
+   1 from core import Part, Sketch, Circle, Rectangle                                             
+   2                                                                                              
+   3 # Создадим новый эскиз для втулки                                                            
+   4 sketch = Part.createSketch("ЭскизВтулки")                                                    
+   5                                                                                              
+   6 # Создадим круглый внутренний конец втулки                                                   
+   7 circle = Circle(sketch, diameter=20)                                                         
+   8 circle.move(down=10, right=20)                                                               
+   9                                                                                              
+  10 # Создадим квадратный внутренний конец втулки                                                
+  11 rectangle = Rectangle(sketch, width=10, height=10)                                           
+  12 rectangle.move(down=10, right=20) 
