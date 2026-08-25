@@ -7,7 +7,7 @@ from typing import List, Optional, Tuple
 
 from .code_fix import normalize_code, must_fix_holes, semantic_warnings
 from .llm import get_llm_client, BaseLLM
-from .prompts import SYSTEM_PROMPT, build_user_prompt, build_repair_prompt
+from .prompts import get_system_prompt, build_user_prompt, build_repair_prompt
 from .validate import validate_generated_code
 
 
@@ -17,7 +17,7 @@ class Agent:
 
     def generate(self, task: str, temperature: float = 0.15) -> str:
         messages = [
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": get_system_prompt()},
             {"role": "user", "content": build_user_prompt(task)},
         ]
         raw = self.llm.chat(messages, temperature=temperature)
@@ -26,7 +26,6 @@ class Agent:
     def generate_checked(
         self, task: str, temperature: float = 0.15, max_retries: int = 2
     ) -> Tuple[str, List[str]]:
-        """Код + ошибки. При провале валидации/дырках — 1–2 retry с repair-промптом."""
         code = self.generate(task, temperature=temperature)
         ok, errors = validate_generated_code(code)
         if ok and must_fix_holes(code):
@@ -39,7 +38,7 @@ class Agent:
         while (not ok or must_fix_holes(code)) and attempt < max_retries:
             attempt += 1
             repair_msgs = [
-                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "system", "content": get_system_prompt()},
                 {
                     "role": "user",
                     "content": build_repair_prompt(task, code, errors),
@@ -55,13 +54,12 @@ class Agent:
                 ]
 
         if ok:
-            # мягкие предупреждения не блокируют
             return code, []
         return code, errors
 
     def generate_raw(self, task: str, temperature: float = 0.15) -> str:
         messages = [
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": get_system_prompt()},
             {"role": "user", "content": build_user_prompt(task)},
         ]
         return self.llm.chat(messages, temperature=temperature)

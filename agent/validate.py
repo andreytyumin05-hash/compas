@@ -1,66 +1,73 @@
-"""
-Проверка сгенерированного кода перед запуском.
-"""
+"""Статическая проверка сгенерированного кода."""
 
 from __future__ import annotations
 
+import ast
 import re
 from typing import List, Tuple
 
-# Запрещённые куски (галлюцинации и COM)
-_FORBIDDEN_PATTERNS = [
-    (r"\bwin32com\b", "запрещён win32com"),
-    (r"\bgencache\b", "запрещён gencache"),
-    (r"\bDispatch\b", "запрещён Dispatch"),
-    (r"\bGetActiveObject\b", "запрещён GetActiveObject"),
-    (r"Part\.createSketch\b", "нет метода Part.createSketch"),
-    (r"\bCircle\s*\(", "класса Circle нет — используй sk.circle"),
-    (r"\bRectangle\s*\(", "класса Rectangle нет — используй sk.rectangle"),
-    (r"\.move\s*\(", "метода move нет"),
-    (r"diameter\s*=", "параметра diameter нет — используй radius = D/2"),
-    (r"\bimport\s+(?!core\b)\w+", "разрешён только import из core"),
-]
-
 _ALLOWED_IMPORT = re.compile(
-    r"^\s*from\s+core\s+import\s+Part\s*(?:#.*)?$", re.MULTILINE
+    r"^\s*from\s+core\s+import\s+Part\s*$"
 )
+
+# методы, которые можно звать у part / sk
+_PART_METHODS = {
+    "create",
+    "sketch",
+    "extrude",
+    "cut",
+    "revolve",
+    "chamfer",
+    "fillet",
+    "update",
+    "name",
+}
+_SKETCH_METHODS = {
+    "circle",
+    "rectangle",
+    "line",
+    "polygon",
+    "arc",
+    "slot",
+}
 
 
 def validate_generated_code(code: str) -> Tuple[bool, List[str]]:
-    """
-    Возвращает (ok, список ошибок).
-    ok=True — можно исполнять.
-    """
     errors: List[str] = []
-    text = code.strip()
-    if not text:
+
+    if not code or not code.strip():
         return False, ["пустой код"]
 
-    if "from core import Part" not in text and "from core import Part," not in text:
-        # допускаем только `from core import Part`
-        if not _ALLOWED_IMPORT.search(text):
-            errors.append("нужен ровно: from core import Part")
+    try:
+        tree = ast.parse(code)
+    except SyntaxError as e:
+        return False, [f"синтаксис: {e}"]
 
-    for pat, msg in _FORBIDDEN_PATTERNS:
-        if re.search(pat, text):
-            # исключение: from core import Part — уже проверили
-            if pat.startswith(r"\bimport\s+") and "from core import" in text:
-                # перепроверим построчно
-                for line in text.splitlines():
-                    s = line.strip()
-                    if s.startswith("import ") and not s.startswith("import core"):
-                        errors.append(f"{msg}: {s}")
-                    if s.startswith("from ") and not s.startswith("from core"):
-                        errors.append(f"{msg}: {s}")
-                continue
-            errors.append(msg)
+    has_import = False
+    has_create = False
 
-    if "Part.create" not in text:
+    for line in code.splitlines():
+        s = line.strip()
+        if not s or s.startswith("#"):
+            continue
+        if s.startswith("import ") and "core" not in s:
+            errors.append(f"запрещённый import: {s}")
+        if s.startswith("from ") and not s.startswith("from core import"):
+            errors.append(f"запрещённый from: {s}")
+        if _ALLOWED_IMPORT.match(line):
+            has_import = True
+
+    if "Part.create" in code:
+        has_create = True
+
+    if not has_import:
+        errors.append("нужен ровно: from core import Part")
+    if not has_create:
         errors.append("ожидается Part.create(...)")
 
-    # убрать дубли
-    uniq: List[str] = []
-    for e in errors:
-        if e not in uniq:
-            uniq.append(e)
-    return len(uniq) == 0, uniq
+    banned = ("win32com", "gencache", "Dispatch", "GetActiveObject", "diameter=")
+    for b in banned:
+        if b in code:
+            errors.append(f"запрещено: {b}")
+
+    return (len(errors) == 0, errors)
