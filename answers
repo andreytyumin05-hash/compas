@@ -1,0 +1,82 @@
+(venv) PS D:\учеба\ML_study\compas> python -m agent.runner "Плита 100x60x8, 4 отверстия O9 по углам отступ 10"
+Задача: Плита 100x60x8, 4 отверстия Ø9 по углам отступ 10
+
+Сгенерированный код:
+
+   1 from core import Part                                                                                
+   2                                                                                                      
+   3    part = Part.create("Плита_100x60x8")                                                              
+   4                                                                                                      
+   5    # 1. Основание                                                                                    
+   6    with part.sketch("xy") as sk:                                                                     
+   7        sk.rectangle(0, 0, 100, 60)                                                                   
+   8    part.extrude(sk, depth=8.0)                                                                       
+   9                                                                                                      
+  10    # 2. Отверстия                                                                                    
+  11    with part.sketch("xy") as sk:                                                                     
+  12        sk.circle(10, 10, 4.5)                                                                        
+  13        sk.circle(90, 10, 4.5)                                                                        
+  14        sk.circle(10, 50, 4.5)                                                                        
+  15        sk.circle(90, 50, 4.5)                                                                        
+  17                                                                                                      
+  18    part.update()                                                                                     
+
+Статическая проверка: OK (это не runtime COM; для геометрии — core.smoke_active / agent.build)
+(venv) PS D:\учеба\ML_study\compas> python -m agent.build "Плита 100x60x8, 4 отверстия O9 по углам отступ 
+10" 
+Задача: Плита 100x60x8, 4 отверстия Ø9 по углам отступ 10
+
+Код:
+
+   1 from core import Part                                                                                
+   2                                                                                                      
+   3    part = Part.create("Плита_100x60x8")                                                              
+   4                                                                                                      
+   5    with part.sketch("xy") as sk_base:                                                                
+   6        sk_base.rectangle(0, 0, 100, 60)                                                              
+   7    part.extrude(sk_base, depth=8.0)                                                                  
+   8                                                                                                      
+   9    with part.sketch("xy") as sk_holes:                                                               
+  10        sk_holes.circle(10, 10, 4.5)                                                                  
+  11        sk_holes.circle(90, 10, 4.5)                                                                  
+  12        sk_holes.circle(10, 50, 4.5)                                                                  
+  13        sk_holes.circle(90, 50, 4.5)                                                                  
+  15                                                                                                      
+  16    part.update()                                                                                     
+
+Запуск в КОМПАС…
+Ошибка: unexpected indent (<agent-build>, line 3)
+(venv) PS D:\учеба\ML_study\compas> python -m agent.build "Втулка наружный 40 внутренний 20 длина 50"
+Задача: Втулка наружный 40 внутренний 20 длина 50
+
+Код:
+
+   1 from core import Part                                                                                
+   2                                                                                                      
+   3 part = Part.create("Втулка")                                                                         
+   4                                                                                                      
+   5 # Эскиз сечения втулки                                                                               
+   6 with part.sketch("xy") as sk:                                                                        
+   7     # Наружный диаметр 40 -> радиус 20                                                               
+   8     sk.circle(0, 0, 20)                                                                              
+   9     # Внутренний диаметр 20 -> радиус 10                                                             
+  10     sk.circle(0, 0, 10)                                                                              
+  11                                                                                                      
+  12 # Выдавливание на длину 50                                                                           
+  13 part.extrude(sk, depth=50.0)                                                                         
+  15 part.update()                                                                                        
+
+Запуск в КОМПАС…
+Готово.
+(venv) PS D:\учеба\ML_study\compas> python -m agent.build "плита 100 на 60 на 80 4 отверстия радиус 3 отсуп 10 по краям"
+Задача: плита 100 на 60 на 80 4 отверстия радиус 3 отсуп 10 по краям
+
+Код:
+
+  1 ...                                                                                                   
+
+Код не прошёл проверку API — запуск отменён:
+  • нужен ровно: from core import Part
+  • ожидается Part.create(...)
+
+втулка создалась хорошо, как надо, плиту обычную я создавал, тоже прошло успешно (просто кубик) 
