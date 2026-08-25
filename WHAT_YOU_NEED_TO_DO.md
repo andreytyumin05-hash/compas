@@ -1,47 +1,44 @@
-# Что делать тебе сейчас
+# Что делать
 
-Ветка: **`agent-v2`**
+## Ветки
 
-## Итог диагностики (уже сделано)
+| Ветка | Назначение |
+|-------|------------|
+| **agent-v2** | Рабочая (актуальный код) |
+| **main** | Старый merge MVP — подтянуть позже с agent-v2 |
 
-- Python **64-bit** — ок  
-- КОМПАС COM виден  
-- **`Documents.Add(4, True)` работает** (документ создаётся)  
-- Typelib **не зарегистрирована** → gencache бесполезен  
-- Ломалось получение **Part** после Add и вызов `ActiveDocument3D()` как метода  
-
-В коде это учтено: Part берём с документа, возвращённого из `Add`; `ActiveDocument3D` сначала как property.
-
-Файл `open_ai_solve` удалён. Для локального Codex/VS Code agent: **`CODEX_TASK.md`**.
-
----
-
-## Твои шаги
-
+Удали локально лишнее:
 ```powershell
-cd D:\учеба\ML_study\compas
+git fetch --prune
+git checkout agent-v2
 git pull origin agent-v2
+
+# удалить чужие ветки на GitHub (если ещё есть):
+# git push origin --delete dev
+# git push origin --delete features/advanced
 ```
 
-1. Запусти **КОМПАС-3D**
-2. Проверка:
-   ```powershell
-   python -c "from core import Part; p=Part.create('Test'); print('OK', p)"
-   ```
-3. Если OK — сборка:
-   ```powershell
-   python -m agent.build "Втулка наружный 40 внутренний 20 длина 50"
-   ```
-4. Если ошибка — полный текст в `responce.txt`
+## Окружение
 
-### Для агента в VS Code (Codex)
+- Windows, КОМПАС-3D, Python 64-bit, venv, `pip install -r requirements.txt`
+- `.env` с ключом LLM (`GROQ_API_KEY` / `GEMINI_API_KEY` и `LLM_MODEL`)
 
-Открой проект, скорми агенту файл **`CODEX_TASK.md`** (или `@CODEX_TASK.md`).  
-Он должен править `core/connection.py` / `core/part.py` **на этой машине** с запущенным КОМПАСом.
+## Команды
 
----
+```powershell
+# КОМПАС открыт
+python -m agent.build "Втулка наружный 40 внутренний 20 длина 50"
 
-## Не нужно
+# только код
+python -m agent.runner "Плита 100x60x8, 4 отверстия диаметр 9 по углам отступ 10"
 
-- Мержить в `main`
-- Менять LLM/промпты, пока COM не строит тело
+# диагностика COM
+python -m core.diagnose
+```
+
+## Дальше по смыслу
+
+1. Гонять разные текстовые задачи через `agent.build`
+2. Если ошибка COM — текст в issue / чат (файл responce.txt в git не кладём)
+3. Фаски/скругления — экспериментально (`chamfer`/`fillet`)
+4. Когда стабильно — смержить agent-v2 → main
