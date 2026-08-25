@@ -1,89 +1,28 @@
-$ python -m core.diagnose
-compas COM diagnose (open_ai_solve plan)
+проверка:
+python -c "from core import Part; p=Part.create('Test'); print('OK', p)"
+OK <core.part.Part object at 0x000001FB8FBA5940>
 
-=== Environment ===
-Python: 3.14.0 (tags/v3.14.0:ebf955d, Oct  7 2025, 10:15:03) [MSC v.1944 64 bit (AMD64)]
-Architecture: ('64bit', 'WindowsPE') AMD64
-Pointer bits: 64
+сборка
+(venv) PS D:\учеба\ML_study\compas>  python -m agent.build "Втулка наружный 40 внутренний 20 длина 50"
+Задача: Втулка наружный 40 внутренний 20 длина 50
 
-pywin32: OK
+Код:
 
-=== Raw GetActiveObject (no DynDispatch wrap) ===
+   1 from core import Part                                                                                
+   2                                                                                                      
+   3 part = Part.create("Втулка")                                                                         
+   4                                                                                                      
+   5 with part.sketch("xy") as sk:                                                                        
+   6     sk.circle(0, 0, 20.0)                                                                            
+   7 part.extrude(sk, depth=50.0)                                                                         
+   8                                                                                                      
+   9 with part.sketch("xy") as sk:                                                                        
+  10     sk.circle(0, 0, 10.0)                                                                            
+  11 part.cut(sk, through_all=True)                                                                       
+  12                                                                                                      
+  13 part.update()                                                                                        
 
---- Kompas.Application.5 ---
-  GetActiveObject OK <class 'win32com.client.CDispatch'>
-  getattr.Visible: OK type=<class 'bool'> repr=True
-  getattr.Document3D: OK type=<class 'win32com.client.CDispatch'> repr=<COMObject <unknown>>
-  getattr.ActiveDocument3D: OK type=<class 'win32com.client.CDispatch'> repr=<COMObject <unknown>>
-  getattr.Documents: FAIL Kompas.Application.5.Documents
-  CALL Document3D(): FAIL (-2147352573, 'Член группы не найден.', None, None)
+Запуск в КОМПАС…
+Готово.
 
---- Kompas.Application.7 ---
-  GetActiveObject OK <class 'win32com.client.CDispatch'>
-  getattr.Visible: OK type=<class 'bool'> repr=True
-  getattr.Document3D: FAIL Kompas.Application.7.Document3D
-  getattr.ActiveDocument3D: FAIL Kompas.Application.7.ActiveDocument3D
-  getattr.Documents: OK type=<class 'win32com.client.CDispatch'> repr=<COMObject <unknown>>
-  Documents object: <class 'win32com.client.CDispatch'> <COMObject <unknown>>
-  Documents.Add: <bound method Add of <COMObject <unknown>>> type=<class 'method'>
-  Documents.AddWithDefaultSettings: <bound method AddWithDefaultSettings of <COMObject <unknown>>> type=<class 'method'>
-  Documents.Count: 6 type=<class 'int'>
-  Documents.Item: <COMObject <unknown>> type=<class 'win32com.client.CDispatch'>
-  CALL Add(4, True): OK → <class 'win32com.client.CDispatch'>
-
-=== A/B Test A — dynamic.Dispatch wrap ===
-dyn Documents: <class 'win32com.client.dynamic.CDispatch'>
-dyn Add attr: <bound method Add of <COMObject <unknown>>>
-dyn Add(4,True): OK
-
-=== A/B Test B — gencache / EnsureModule (may fail on makepy) ===
-gencache API7 path FAIL (-2147319779, 'Библиотека не зарегистрирована.', None, None)
-gencache API5 path FAIL (-2147319779, 'Библиотека не зарегистрирована.', None, None)
-
-=== core.KompasApp.new_part_document ===
-Traceback (most recent call last):
-  File "D:\учеба\ML_study\compas\core\diagnose.py", line 183, in _wrapper_tests
-    doc, part = app.new_part_document()
-                ~~~~~~~~~~~~~~~~~~~~~^^
-  File "D:\учеба\ML_study\compas\core\connection.py", line 309, in new_part_document
-    raise KompasError(
-    ...<6 lines>...
-    )
-core.exceptions.KompasError: Не удалось создать/получить деталь.
-  • API7: Documents type=<class 'win32com.client.dynamic.CDispatch'>; AddWithDefaultSettings(1, True) ok; ActiveDocument3D: 'NoneType' object is not callable; ActiveDocument=<COMObject <unknown>>; TopPart: <unknown>.TopPart; topPart: <unknown>.topPart
-  • API5: Document3D(): (-2147352573, 'Член группы не найден.', None, None)
-  • Active: API5 active: 'NoneType' object is not callable; TopPart: <unknown>.TopPart
-
-WORKAROUND: В КОМПАСе вручную Файл→Создать→Деталь, затем:
-  python -c "from core import Part; p=Part.from_active(); print('OK', p)"
-Если from_active работает — можно строить в уже открытой детали.
-
-=== Part.from_active (need open Part in UI) ===
-from_active FAIL: Нет активной 3D-детали: 'NoneType' object is not callable
-
-=== end diagnose ===
-Next: if from_active works, run: python -m core.smoke_active
-(venv) 
-
-2
-
- python -m core.smoke_active
-=== smoke_active: geometry on existing Part ===
-FAIL:
-Traceback (most recent call last):
-  File "D:\учеба\ML_study\compas\core\part.py", line 62, in from_active
-    doc3d = app.k5.ActiveDocument3D()
-  File "D:\учеба\ML_study\compas\venv\Lib\site-packages\win32com\client\dynamic.py", line 214, in __call__
-    self._oleobj_.Invoke(*allArgs), self._olerepr_.defaultDispatchName, None
-    ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^
-pywintypes.com_error: (-2147352573, 'Член группы не найден.', None, None)
-
-The above exception was the direct cause of the following exception:
-
-Traceback (most recent call last):
-  File "D:\учеба\ML_study\compas\core\smoke_active.py", line 25, in main
-    p = Part.from_active()
-  File "D:\учеба\ML_study\compas\core\part.py", line 65, in from_active
-    raise KompasError(f"Нет активной 3D-детали: {e}") from e
-core.exceptions.KompasError: Нет активной 3D-детали: (-2147352573, 'Член группы не найден.', None, None)
-(venv) 
+модель создалась в КОМПАСе
