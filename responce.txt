@@ -1,24 +1,53 @@
-(venv)                               
-(venv) PS D:\учеба\ML_study\compas> python -m agent.build "Втулка наружный 40 внутренний 20 длина 50"
-Задача: Втулка наружный 40 внутренний 20 длина 50
+$ python -m core.diagnose
+=== Диагностика КОМПАС COM ===
 
-Код:
+pywin32: OK
 
-   1 from core import Part                                                                                          
-   2                                                                                                                
-   3 part = Part.create("Втулка")                                                                                   
-   4                                                                                                                
-   5 with part.sketch("xy") as sk_outer:                                                                            
-   6     sk_outer.circle(0, 0, 20.0)                                                                                
-   7 part.extrude(sk_outer, depth=50.0)                                                                             
-   8                                                                                                                
-   9 with part.sketch("xy") as sk_inner:                                                                            
-  10     sk_inner.circle(0, 0, 10.0)                                                                                
-  12                                                                                                                
-  13 part.update()                                                                                                  
+--- Kompas.Application.5 ---
+  GetActiveObject: OK
+  .Visible: OK → <class 'bool'>
+  .Document3D: OK → <class 'win32com.client.CDispatch'>
+  .ActiveDocument3D: OK → <class 'NoneType'>
+  .Documents: FAIL — Kompas.Application.5.Documents
+  .ApplicationName: FAIL — Kompas.Application.5.ApplicationName
 
-Запуск в КОМПАС…
-Ошибка: (-2147352573, 'Член группы не найден.', None, None)
+--- Kompas.Application.7 ---
+  GetActiveObject: OK
+  .Visible: OK → <class 'bool'>
+  .Document3D: FAIL — Kompas.Application.7.Document3D
+  .ActiveDocument3D: FAIL — Kompas.Application.7.ActiveDocument3D
+  .Documents: OK → <class 'win32com.client.CDispatch'>
+  .ApplicationName: OK → <class 'method'>
+
+--- KompasObject via typelib ---
+  type: <class 'win32com.client.CDispatch'>
+  .Document3D: OK → <class 'win32com.client.CDispatch'>
+  .ActiveDocument3D: OK → <class 'NoneType'>
+  .Visible: OK → <class 'bool'>
+
+--- new_part_document ---
+  FAIL:
+Traceback (most recent call last):
+  File "D:\учеба\ML_study\compas\core\diagnose.py", line 65, in main
+    doc3d, part = app.new_part_document()
+                  ~~~~~~~~~~~~~~~~~~~~~^^
+  File "D:\учеба\ML_study\compas\core\connection.py", line 228, in new_part_document
+    raise KompasError(
+    ...<3 lines>...
+    )
+core.exceptions.KompasError: Не удалось создать/получить деталь.
+  • API5 Document3D: (-2147352573, 'Член группы не найден.', None, None)
+  • API7 Add(1): 'NoneType' object is not callable
+  • API7 Add(4): (-2147352573, 'Член группы не найден.', None, None)
+  • API7 Add(5): (-2147352573, 'Член группы не найден.', None, None)
+  • ActiveDocument3D: (-2147352573, 'Член группы не найден.', None, None)
+
+Проверьте: КОМПАС-3D запущен, есть лицензия, API/SDK не отключены.
+
+=== конец ===
+(venv) 
+
+2
 (venv) PS D:\учеба\ML_study\compas> python -m agent.build "Втулка наружный 40 внутренний 20 длина 50"
 Задача: Втулка наружный 40 внутренний 20 длина 50
 
@@ -34,9 +63,36 @@
    8                                                                                                                
    9 with part.sketch("xy") as sk:                                                                                  
   10     sk.circle(0, 0, 10.0)                                                                                      
-  11 part.cut(sk, through_all=True)                                                                                 
   12                                                                                                                
   13 part.update()                                                                                                  
 
 Запуск в КОМПАС…
-Ошибка: Документ создан, но TopPart недоступен: Property '<unknown>.Name' can not be set.
+Ошибка: Document3D() недоступен: (-2147352573, 'Член группы не найден.', None, None)
+(venv) PS D:\учеба\ML_study\compas> python -m agent.build "Втулка наружный 40 внутренний 20 длина 50"
+Задача: Втулка наружный 40 внутренний 20 длина 50
+
+Код:
+
+   1 from core import Part                                                                                          
+   2                                                                                                                
+   3 part = Part.create("Втулка")                                                                                   
+   4                                                                                                                
+   5 with part.sketch("xy") as sk:                                                                                  
+   6     sk.circle(0, 0, 20.0)                                                                                      
+   7 part.extrude(sk, depth=50.0)                                                                                   
+   8                                                                                                                
+   9 with part.sketch("xy") as sk_hole:                                                                             
+  10     sk_hole.circle(0, 0, 10.0)                                                                                 
+  11 part.cut(sk_hole, through_all=True)                                                                            
+  12                                                                                                                
+  13 part.update()                                                                                                  
+
+Запуск в КОМПАС…
+Ошибка: Не удалось создать/получить деталь.
+  • API5 Document3D: (-2147352573, 'Член группы не найден.', None, None)
+  • API7 Add(1): 'NoneType' object is not callable
+  • API7 Add(4): (-2147352573, 'Член группы не найден.', None, None)
+  • API7 Add(5): (-2147352573, 'Член группы не найден.', None, None)
+  • ActiveDocument3D: (-2147352573, 'Член группы не найден.', None, None)
+
+Проверьте: КОМПАС-3D запущен, есть лицензия, API/SDK не отключены.
