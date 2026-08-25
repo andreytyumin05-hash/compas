@@ -1,0 +1,29 @@
+(venv) PS D:\учеба\ML_study\compas> python -m agent.build "Плита 100x60x8, 4 отверстия диаметр 9 по углам 
+отступ 10"
+Задача: Плита 100x60x8, 4 отверстия диаметр 9 по углам отступ 10
+
+Код:
+
+   1 from core import Part                                                                                
+   2                                                                                                      
+   3 part = Part.create("Плита")                                                                          
+   4                                                                                                      
+   5 with part.sketch("xy") as sk:                                                                        
+   6     sk.rectangle(0, 0, 100, 60)                                                                      
+   7 part.extrude(sk, depth=8.0)                                                                          
+   8                                                                                                      
+   9 with part.sketch("xy") as sk:                                                                        
+  10     sk.circle(10, 10, 4.5)                                                                           
+  11     sk.circle(90, 10, 4.5)                                                                           
+  12     sk.circle(10, 50, 4.5)                                                                           
+  13     sk.circle(90, 50, 4.5)                                                                           
+  14 part.cut(sk, through_all=True)                                                                       
+  15                                                                                                      
+  16 part.update()                                                                                        
+  17                                                                                                      
+
+Запуск в КОМПАС…
+Готово.
+
+в тг бот описал втулку, сделал все правильно, только внутренний вырез сделал глубиной 10, не на всю глубину, но главное тг работает
+думаю просто нужно более точно описывать информацию либо снова редачить 
