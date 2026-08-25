@@ -1,5 +1,5 @@
 """
-Деталь через API5: GetPart + NewEntity.
+Деталь: NewEntity sketch/extrude. Получение part — через connection._extract_part логику.
 """
 
 from __future__ import annotations
@@ -13,6 +13,8 @@ from .connection import (
     O3D_PLANE_XOZ,
     O3D_PLANE_YOZ,
     O3D_SKETCH,
+    _as_prop_or_call,
+    _extract_part,
 )
 from .exceptions import KompasError, KompasOperationError
 from .sketch import Sketch
@@ -32,9 +34,9 @@ class Part:
     def __init__(self, app: KompasApp, doc3d: Any, part_com: Any, name: str = ""):
         self.app = app
         self._doc3d = doc3d
-        self._part = part_com  # ksPart
+        self._part = part_com
         self._name = name
-        self._feature_count = 0  # сколько формообразующих уже создано
+        self._feature_count = 0
 
     @classmethod
     def create(cls, name: str = "Деталь", app: Optional[KompasApp] = None) -> "Part":
@@ -43,7 +45,6 @@ class Part:
         app.hide_messages(True)
         doc3d, part_com = app.new_part_document()
 
-        # Имя — best effort (на API5 иногда через part.name)
         if name:
             for attr in ("name", "Name"):
                 try:
@@ -58,12 +59,34 @@ class Part:
     def from_active(cls, app: Optional[KompasApp] = None) -> "Part":
         if app is None:
             app = get_app(auto_launch=False)
-        try:
-            doc3d = app.k5.ActiveDocument3D()
-            part_com = doc3d.GetPart(-1)
-        except Exception as e:
-            raise KompasError(f"Нет активной 3D-детали: {e}") from e
-        return cls(app, doc3d, part_com)
+
+        errors: list[str] = []
+
+        # API7 ActiveDocument first (TopPart may work without typelib)
+        if app.app7 is not None:
+            try:
+                ad = app.app7.ActiveDocument
+                part_com, how = _extract_part(ad)
+                if part_com is not None:
+                    return cls(app, ad, part_com)
+                errors.append(f"app7.ActiveDocument: {how}")
+            except Exception as e:
+                errors.append(f"app7: {e}")
+
+        if app.k5 is not None:
+            try:
+                d3 = _as_prop_or_call(app.k5, "ActiveDocument3D")
+                part_com, how = _extract_part(d3)
+                if part_com is not None:
+                    return cls(app, d3, part_com)
+                errors.append(f"ActiveDocument3D: {how}")
+            except Exception as e:
+                errors.append(f"k5: {e}")
+
+        raise KompasError(
+            "Нет активной 3D-детали. Откройте Деталь в КОМПАСе.\n"
+            + "\n".join(f"  • {e}" for e in errors)
+        )
 
     @property
     def top_part(self) -> Any:
@@ -92,34 +115,26 @@ class Part:
         plane_key = plane.lower().strip()
         plane_id = _PLANES.get(plane_key)
         if plane_id is None:
-            raise KompasOperationError(f"Плоскость {plane!r}: используйте xy/xz/yz")
+            raise KompasOperationError(f"Плоскость {plane!r}: xy/xz/yz")
 
         try:
             entity = self._part.NewEntity(O3D_SKETCH)
         except Exception as e:
-            raise KompasOperationError(f"NewEntity(sketch) не удался: {e}") from e
-
+            raise KompasOperationError(f"NewEntity(sketch): {e}") from e
         if entity is None:
-            raise KompasOperationError("NewEntity(sketch) вернул None")
+            raise KompasOperationError("NewEntity(sketch) None")
 
         try:
             definition = entity.GetDefinition()
         except Exception as e:
-            raise KompasOperationError(f"GetDefinition эскиза: {e}") from e
+            raise KompasOperationError(f"GetDefinition: {e}") from e
 
         try:
             plane_entity = self._part.GetDefaultEntity(plane_id)
-        except Exception as e:
-            raise KompasOperationError(
-                f"GetDefaultEntity({plane_id}) не удался: {e}"
-            ) from e
-
-        try:
             definition.SetPlane(plane_entity)
         except Exception as e:
             raise KompasOperationError(f"SetPlane: {e}") from e
 
-        # Create эскиза до рисования — как в примерах SDK
         try:
             entity.Create()
         except Exception:
