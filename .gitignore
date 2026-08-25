@@ -16,6 +16,7 @@ build/
 scripts/generated/
 responce.txt
 response.txt
+answers
 *.a3d
 *.m3d
 *.cdw
