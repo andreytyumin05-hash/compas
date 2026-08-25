@@ -39,7 +39,7 @@ class Sketch:
         if self._editing:
             return self
         try:
-            self._doc2d = self._definition.BeginEdit()
+            self._doc2d = self._definition.BeginEdit
         except Exception as e:
             raise KompasOperationError(f"BeginEdit эскиза: {e}") from e
         if self._doc2d is None:
@@ -51,14 +51,14 @@ class Sketch:
         if not self._editing:
             return self
         try:
-            self._definition.EndEdit()
+            self._definition.EndEdit
         except Exception as e:
             raise KompasOperationError(f"EndEdit эскиза: {e}") from e
         finally:
             self._editing = False
             self._doc2d = None
         try:
-            self._entity.Update()
+            self._entity.Update
         except Exception:
             pass
         return self

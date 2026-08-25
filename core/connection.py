@@ -8,7 +8,7 @@ PROVEN:
 - gencache EnsureModule FAIL: "Библиотека не зарегистрирована" (no typelib)
 - App5.Document3D() CALL → DISP_E_MEMBERNOTFOUND
 - App5.ActiveDocument3D as getattr returns CDispatch, but () call → MEMBERNOTFOUND
-  → treat ActiveDocument3D / Document3D as PROPERTY first, not method
+  → treat ActiveDocument3D / Document3D as PROPERTY, not method
 
 Strategy:
 1) Create part with app7.Documents.Add(4, True) and keep the RETURNED document
@@ -24,8 +24,7 @@ from typing import Any, Optional, Tuple, List
 from .exceptions import KompasNotRunningError, KompasError
 
 try:
-    from win32com.client import GetActiveObject
-    from win32com.client.dynamic import Dispatch as DynDispatch
+    from win32com.client import Dispatch, GetActiveObject
 except ImportError as e:
     raise ImportError("pip install pywin32") from e
 
@@ -56,40 +55,56 @@ def _co_init() -> None:
 
 
 def _dyn(prog_id: str) -> Any:
+    """Return the native late-bound COM wrapper.
+
+    ``GetActiveObject`` already returns a ``win32com.client.CDispatch``.
+    Re-wrapping it with ``dynamic.Dispatch`` changes nested property values
+    into dynamic callable proxies on installations without a registered
+    KOMPAS typelib.  In particular, that made a valid ``ActiveDocument3D``
+    look like a method and led to ``DISP_E_MEMBERNOTFOUND``.  Keep the
+    original wrapper all the way from ``Documents.Add`` to part extraction.
+    """
     _co_init()
     try:
-        raw = GetActiveObject(prog_id)
+        return GetActiveObject(prog_id)
     except Exception:
-        raw = DynDispatch(prog_id)
-    try:
-        return DynDispatch(raw)
-    except Exception:
-        return raw
+        # Preserve the historic auto-launch behaviour for ``Part.create``.
+        return Dispatch(prog_id)
 
 
 def _as_prop_or_call(obj: Any, name: str) -> Any:
     """
-    COM member may be a property (returns object on getattr)
-    or a method (needs ()). Diagnose showed ActiveDocument3D
-    getattr OK but () → MEMBERNOTFOUND — so prefer property value first.
+    Return a document member strictly as a property.
+
+    KOMPAS exposes ``ActiveDocument3D`` and ``Document3D`` as dispatch
+    properties here.  A dynamic dispatch object can be callable too, so
+    checking ``callable(value)`` and then invoking it is not safe.
     """
     try:
         val = getattr(obj, name)
     except Exception as e:
         raise AttributeError(f"{name}: {e}") from e
 
-    # If it looks like a COM method and calling might work, try carefully
-    if callable(val):
-        try:
-            return val()
-        except Exception:
-            # callable but invoke failed — return as-is if it's already a dispatch
-            return val
     return val
 
 
-def _extract_part(doc: Any) -> Tuple[Optional[Any], str]:
-    """Try every known way to get ksPart / TopPart from a document COM object."""
+def _is_legacy_part(part: Any) -> bool:
+    """Whether *part* is the API5 ``ksPart`` used by the modelling wrapper.
+
+    API7's ``TopPart`` is an ``IPart7``.  It is a perfectly valid component,
+    but it does not expose API5's ``NewEntity`` method used by ``Sketch`` and
+    ``operations``.  Accessing the member is non-mutating and lets us keep
+    searching for ``ksPart`` instead of returning an object that will fail
+    only later at the first sketch.
+    """
+    try:
+        return callable(getattr(part, "NewEntity"))
+    except Exception:
+        return False
+
+
+def _extract_part(doc: Any, *, require_legacy_part: bool = False) -> Tuple[Optional[Any], str]:
+    """Try every known way to get a part from a document COM object."""
     if doc is None:
         return None, "doc is None"
     notes: List[str] = []
@@ -99,17 +114,38 @@ def _extract_part(doc: Any) -> Tuple[Optional[Any], str]:
         try:
             p = getattr(doc, attr)
             if p is not None:
-                return p, f"doc.{attr}"
+                if not require_legacy_part or _is_legacy_part(p):
+                    return p, f"doc.{attr}"
+                notes.append(f"{attr}=API7 part (no NewEntity)")
+                continue
             notes.append(f"{attr}=None")
         except Exception as e:
             notes.append(f"{attr}:{e}")
+
+    # API7 documents expose the same read-only property through this
+    # Automation getter.  It matters when ``TopPart`` is not described by
+    # the base document dispatch returned from Documents.Add.
+    for method in ("GetTopPart", "get_TopPart"):
+        try:
+            p = getattr(doc, method)()
+            if p is not None:
+                if not require_legacy_part or _is_legacy_part(p):
+                    return p, f"{method}()"
+                notes.append(f"{method}()=API7 part (no NewEntity)")
+                continue
+            notes.append(f"{method}()=None")
+        except Exception as e:
+            notes.append(f"{method}():{e}")
 
     # GetPart(-1) API5 style
     for args in ((-1,), (P_TOP_PART,), (0,)):
         try:
             p = doc.GetPart(*args)
             if p is not None:
-                return p, f"GetPart{args}"
+                if not require_legacy_part or _is_legacy_part(p):
+                    return p, f"GetPart{args}"
+                notes.append(f"GetPart{args}=API7 part (no NewEntity)")
+                continue
             notes.append(f"GetPart{args}=None")
         except Exception as e:
             notes.append(f"GetPart{args}:{e}")
@@ -119,7 +155,7 @@ def _extract_part(doc: Any) -> Tuple[Optional[Any], str]:
         try:
             inner = _as_prop_or_call(doc, name)
             if inner is not None and inner is not doc:
-                p, how = _extract_part(inner)
+                p, how = _extract_part(inner, require_legacy_part=require_legacy_part)
                 if p is not None:
                     return p, f"{name}->{how}"
         except Exception as e:
@@ -216,7 +252,10 @@ class KompasApp:
                 notes.append(f"Item fallback: {e}")
                 return None, None, "; ".join(notes)
 
-        part, how = _extract_part(doc)
+        # ``Documents.Add`` returns an API7 IKompasDocument.  Probe it first,
+        # but only accept an API5 ksPart because the rest of core uses
+        # ``NewEntity``.  Its TopPart is IPart7 and is not interchangeable.
+        part, how = _extract_part(doc, require_legacy_part=True)
         if part is not None:
             return doc, part, "; ".join(notes + [how])
 
@@ -224,7 +263,7 @@ class KompasApp:
         try:
             ad = self.app7.ActiveDocument
             notes.append("try ActiveDocument")
-            part, how = _extract_part(ad)
+            part, how = _extract_part(ad, require_legacy_part=True)
             if part is not None:
                 return ad, part, "; ".join(notes + [how])
             notes.append(f"ActiveDocument extract: {how}")
@@ -236,7 +275,7 @@ class KompasApp:
             try:
                 d3 = _as_prop_or_call(self.k5, "ActiveDocument3D")
                 notes.append(f"ActiveDocument3D prop type={type(d3)}")
-                part, how = _extract_part(d3)
+                part, how = _extract_part(d3, require_legacy_part=True)
                 if part is not None:
                     return d3, part, "; ".join(notes + [how])
                 notes.append(f"extract from ActiveDocument3D: {how}")
@@ -259,7 +298,7 @@ class KompasApp:
                 notes.append("Create OK")
             except Exception as e:
                 notes.append(f"Create: {e}")
-            part, how = _extract_part(doc3d)
+            part, how = _extract_part(doc3d, require_legacy_part=True)
             if part is not None:
                 return doc3d, part, "; ".join(notes + [how])
             notes.append(f"extract: {how}")
@@ -274,7 +313,7 @@ class KompasApp:
         if self.app7 is not None:
             try:
                 ad = self.app7.ActiveDocument
-                part, how = _extract_part(ad)
+                part, how = _extract_part(ad, require_legacy_part=True)
                 if part is not None:
                     return ad, part, f"app7.ActiveDocument->{how}"
                 notes.append(f"app7.ActiveDocument: {how}")
@@ -284,7 +323,7 @@ class KompasApp:
         if self.k5 is not None:
             try:
                 d3 = _as_prop_or_call(self.k5, "ActiveDocument3D")
-                part, how = _extract_part(d3)
+                part, how = _extract_part(d3, require_legacy_part=True)
                 if part is not None:
                     return d3, part, f"ActiveDocument3D->{how}"
                 notes.append(f"ActiveDocument3D: {how}")

@@ -62,11 +62,12 @@ class Part:
 
         errors: list[str] = []
 
-        # API7 ActiveDocument first (TopPart may work without typelib)
+        # API7 TopPart is IPart7, whereas this wrapper needs API5 ksPart
+        # (NewEntity).  Keep it as a fallback probe, but reject IPart7.
         if app.app7 is not None:
             try:
                 ad = app.app7.ActiveDocument
-                part_com, how = _extract_part(ad)
+                part_com, how = _extract_part(ad, require_legacy_part=True)
                 if part_com is not None:
                     return cls(app, ad, part_com)
                 errors.append(f"app7.ActiveDocument: {how}")
@@ -76,7 +77,7 @@ class Part:
         if app.k5 is not None:
             try:
                 d3 = _as_prop_or_call(app.k5, "ActiveDocument3D")
-                part_com, how = _extract_part(d3)
+                part_com, how = _extract_part(d3, require_legacy_part=True)
                 if part_com is not None:
                     return cls(app, d3, part_com)
                 errors.append(f"ActiveDocument3D: {how}")
@@ -125,7 +126,10 @@ class Part:
             raise KompasOperationError("NewEntity(sketch) None")
 
         try:
-            definition = entity.GetDefinition()
+            # With unregistered KOMPAS type libraries, pywin32 resolves this
+            # no-argument API5 getter during attribute access.  Calling the
+            # returned dispatch again invokes its default member and fails.
+            definition = entity.GetDefinition
         except Exception as e:
             raise KompasOperationError(f"GetDefinition: {e}") from e
 
@@ -136,7 +140,7 @@ class Part:
             raise KompasOperationError(f"SetPlane: {e}") from e
 
         try:
-            entity.Create()
+            entity.Create
         except Exception:
             pass
 
@@ -175,10 +179,10 @@ class Part:
 
     def update(self) -> None:
         try:
-            self._doc3d.UpdateDocumentParam()
+            self._doc3d.UpdateDocumentParam
         except Exception:
             pass
         try:
-            self._part.Update()
+            self._part.Update
         except Exception:
             pass

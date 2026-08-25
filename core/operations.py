@@ -107,7 +107,7 @@ def extrude(
         if entity is None:
             raise KompasOperationError(f"NewEntity({type_id}) вернул None")
 
-        definition = entity.GetDefinition()
+        definition = entity.GetDefinition
         _set_side_param(definition, through_all=False, depth=depth, direction=dir_id)
 
         try:
@@ -120,13 +120,13 @@ def extrude(
         except Exception as e:
             raise KompasOperationError(f"SetSketch: {e}") from e
 
-        ok = entity.Create()
+        ok = entity.Create
         if ok is False:
             raise KompasOperationError("entity.Create() вернул False (выдавливание)")
         _log("extrude Create OK")
 
         try:
-            entity.Update()
+            entity.Update
         except Exception as e:
             _log(f"entity.Update skip: {e}")
 
@@ -153,7 +153,7 @@ def cut_extrude(
         if entity is None:
             raise KompasOperationError("NewEntity(cutExtrusion) вернул None")
 
-        definition = entity.GetDefinition()
+        definition = entity.GetDefinition
         _set_side_param(definition, through_all=through_all, depth=depth, direction=dir_id)
 
         try:
@@ -166,12 +166,12 @@ def cut_extrude(
         except Exception as e:
             raise KompasOperationError(f"SetSketch (cut): {e}") from e
 
-        ok = entity.Create()
+        ok = entity.Create
         if ok is False:
             raise KompasOperationError("entity.Create() вернул False (вырезание)")
 
         try:
-            entity.Update()
+            entity.Update
         except Exception as e:
             _log(f"entity.Update skip: {e}")
 
@@ -185,7 +185,7 @@ def cut_extrude(
 def revolve(part: "Part", sketch: "Sketch", angle: float = 360.0) -> Any:
     try:
         entity = part._part.NewEntity(O3D_BOSS_ROTATED)
-        definition = entity.GetDefinition()
+        definition = entity.GetDefinition
         try:
             definition.SetSketch(sketch.entity)
         except Exception as e:
@@ -194,7 +194,7 @@ def revolve(part: "Part", sketch: "Sketch", angle: float = 360.0) -> Any:
             definition.angle = float(angle)
         except Exception as e:
             _log(f"angle skip: {e}")
-        entity.Create()
+        entity.Create
         return entity
     except KompasOperationError:
         raise
