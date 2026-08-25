@@ -1,6 +1,4 @@
-"""
-Деталь: NewEntity sketch/extrude. Получение part — через connection._extract_part логику.
-"""
+"""Деталь: NewEntity sketch/extrude/cut."""
 
 from __future__ import annotations
 
@@ -62,8 +60,6 @@ class Part:
 
         errors: list[str] = []
 
-        # API7 TopPart is IPart7, whereas this wrapper needs API5 ksPart
-        # (NewEntity).  Keep it as a fallback probe, but reject IPart7.
         if app.app7 is not None:
             try:
                 ad = app.app7.ActiveDocument
@@ -126,9 +122,6 @@ class Part:
             raise KompasOperationError("NewEntity(sketch) None")
 
         try:
-            # With unregistered KOMPAS type libraries, pywin32 resolves this
-            # no-argument API5 getter during attribute access.  Calling the
-            # returned dispatch again invokes its default member and fails.
             definition = entity.GetDefinition
         except Exception as e:
             raise KompasOperationError(f"GetDefinition: {e}") from e
@@ -176,6 +169,16 @@ class Part:
         result = operations.revolve(self, sketch, angle=angle)
         self._feature_count += 1
         return result
+
+    def chamfer(self, size: float = 1.0) -> Any:
+        from .part_advanced import try_chamfer
+
+        return try_chamfer(self, size)
+
+    def fillet(self, radius: float = 1.0) -> Any:
+        from .part_advanced import try_fillet
+
+        return try_fillet(self, radius)
 
     def update(self) -> None:
         try:
