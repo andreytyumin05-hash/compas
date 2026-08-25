@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import TYPE_CHECKING, Any
 
 from .connection import (
@@ -23,29 +24,33 @@ if TYPE_CHECKING:
     from .part import Part
     from .sketch import Sketch
 
+DEBUG = os.environ.get("COMPAS_DEBUG_COM", "").lower() in ("1", "true", "yes")
+
+
+def _log(msg: str) -> None:
+    if DEBUG:
+        print(f"[COM] {msg}")
+
 
 def _set_side_param(definition: Any, through_all: bool, depth: float, direction: int) -> None:
-    """
-    Разные версии API принимают разную сигнатуру SetSideParam.
-    Пробуем несколько вариантов.
-    """
     et = ET_THROUGH_ALL if through_all else ET_BLIND
     d = 0.0 if through_all else float(depth)
+    last_err = None
 
     attempts = [
-        # (bool side1, endType, depth, draft, bool unknown) — частый вариант из примеров
-        lambda: definition.SetSideParam(True, et, d, 0, True),
-        lambda: definition.SetSideParam(True, et, d, 0.0, False),
-        lambda: definition.SetSideParam(True, et, d),
-        # API7-подобная
-        lambda: definition.SetSideParameters(True, et, d, 0.0, False, None),
+        ("SetSideParam(5args True)", lambda: definition.SetSideParam(True, et, d, 0, True)),
+        ("SetSideParam(5args False)", lambda: definition.SetSideParam(True, et, d, 0.0, False)),
+        ("SetSideParam(3args)", lambda: definition.SetSideParam(True, et, d)),
+        (
+            "SetSideParameters",
+            lambda: definition.SetSideParameters(True, et, d, 0.0, False, None),
+        ),
     ]
 
-    last_err = None
-    for fn in attempts:
+    for name, fn in attempts:
         try:
             fn()
-            # направление
+            _log(f"side param via {name}")
             try:
                 definition.directionType = direction
             except Exception:
@@ -62,9 +67,8 @@ def _set_side_param(definition: Any, through_all: bool, depth: float, direction:
             return
         except Exception as e:
             last_err = e
-            continue
+            _log(f"{name} failed: {e}")
 
-    # Последняя попытка через ExtrusionParam только
     try:
         ep = definition.ExtrusionParam()
         ep.direction = direction
@@ -79,10 +83,11 @@ def _set_side_param(definition: Any, through_all: bool, depth: float, direction:
                 ep.typeNormal = ET_BLIND
             except Exception:
                 pass
+        _log("side param via ExtrusionParam only")
         return
     except Exception as e:
         raise KompasOperationError(
-            f"Не удалось задать параметры выдавливания. Last: {last_err}; ExtrusionParam: {e}"
+            f"Не задать параметры выдавливания. last={last_err}; ExtrusionParam={e}"
         ) from e
 
 
@@ -93,9 +98,9 @@ def extrude(
     direction: str = "normal",
     both_directions: bool = False,
 ) -> Any:
-    # Первая операция — baseExtrusion, дальше bossExtrusion
     type_id = O3D_BASE_EXTRUSION if part._feature_count == 0 else O3D_BOSS_EXTRUSION
     dir_id = DT_BOTH if both_directions else (DT_REVERSE if direction == "reverse" else DT_NORMAL)
+    _log(f"extrude type_id={type_id} depth={depth}")
 
     try:
         entity = part._part.NewEntity(type_id)
@@ -107,8 +112,8 @@ def extrude(
 
         try:
             definition.SetThinParam(False, DT_NORMAL, 0, 0)
-        except Exception:
-            pass
+        except Exception as e:
+            _log(f"SetThinParam skip: {e}")
 
         try:
             definition.SetSketch(sketch.entity)
@@ -118,11 +123,12 @@ def extrude(
         ok = entity.Create()
         if ok is False:
             raise KompasOperationError("entity.Create() вернул False (выдавливание)")
+        _log("extrude Create OK")
 
         try:
             entity.Update()
-        except Exception:
-            pass
+        except Exception as e:
+            _log(f"entity.Update skip: {e}")
 
         return entity
     except KompasOperationError:
@@ -140,6 +146,7 @@ def cut_extrude(
 ) -> Any:
     type_id = O3D_CUT_EXTRUSION
     dir_id = DT_BOTH if through_all else (DT_REVERSE if direction == "reverse" else DT_NORMAL)
+    _log(f"cut type_id={type_id} through_all={through_all}")
 
     try:
         entity = part._part.NewEntity(type_id)
@@ -151,8 +158,8 @@ def cut_extrude(
 
         try:
             definition.SetThinParam(False, DT_NORMAL, 0, 0)
-        except Exception:
-            pass
+        except Exception as e:
+            _log(f"SetThinParam skip: {e}")
 
         try:
             definition.SetSketch(sketch.entity)
@@ -165,8 +172,8 @@ def cut_extrude(
 
         try:
             entity.Update()
-        except Exception:
-            pass
+        except Exception as e:
+            _log(f"entity.Update skip: {e}")
 
         return entity
     except KompasOperationError:
@@ -185,8 +192,8 @@ def revolve(part: "Part", sketch: "Sketch", angle: float = 360.0) -> Any:
             raise KompasOperationError(f"SetSketch (revolve): {e}") from e
         try:
             definition.angle = float(angle)
-        except Exception:
-            pass
+        except Exception as e:
+            _log(f"angle skip: {e}")
         entity.Create()
         return entity
     except KompasOperationError:

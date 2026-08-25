@@ -25,7 +25,6 @@ class Agent:
         return self._extract_code(raw)
 
     def generate_checked(self, task: str, temperature: float = 0.2) -> tuple[str, list[str]]:
-        """Код + список ошибок валидации (пустой список = ок)."""
         code = self.generate(task, temperature=temperature)
         ok, errors = validate_generated_code(code)
         return code, ([] if ok else errors)
@@ -55,7 +54,6 @@ def main() -> None:
 
     if len(sys.argv) < 2:
         console.print('[yellow]Использование:[/] python -m agent.runner "описание детали"')
-        console.print('Пример: python -m agent.runner "Фланец Ø80, толщина 10, 4 отверстия Ø9 на диаметре 60"')
         sys.exit(1)
 
     task = " ".join(sys.argv[1:])
@@ -67,13 +65,15 @@ def main() -> None:
         console.print("[green]Сгенерированный код:[/]\n")
         console.print(Syntax(code, "python", theme="monokai", line_numbers=True))
         if errors:
-            console.print("\n[red]Проверка API не пройдена:[/]")
+            console.print("\n[red]Статическая проверка не пройдена:[/]")
             for e in errors:
                 console.print(f"  • {e}")
-            console.print("[yellow]Код лучше не запускать в КОМПАСе без правки.[/]")
             sys.exit(2)
         else:
-            console.print("\n[green]Проверка API: OK[/]")
+            console.print(
+                "\n[green]Статическая проверка: OK[/] "
+                "(это не runtime COM; для геометрии — core.smoke_active / agent.build)"
+            )
     except Exception as e:
         console.print(f"[red]Ошибка:[/] {e}")
         sys.exit(1)
