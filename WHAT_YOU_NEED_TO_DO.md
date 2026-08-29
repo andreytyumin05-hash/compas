@@ -1,37 +1,45 @@
-# agent-v2
+# agent-v2-vision — что делать
 
 ```powershell
-git pull origin agent-v2
+git fetch
+git checkout agent-v2-vision
+git pull origin agent-v2-vision
+pip install -r requirements.txt
 ```
 
-## Сейчас
+## Уже в ветке
 
-Фланец и база уже ок. Углубление CAD:
+| Модуль | Статус |
+|--------|--------|
+| `core/sketch` ellipse, rounded_rect, spline, slot | готово |
+| `core/features` hole, pattern holes | готово |
+| `core/export`, `mass` | готово (best-effort COM) |
+| `Part.hole / pattern_* / export` | готово |
+| `agent/vision.py` | Gemini → OpenRouter |
+| `agent/build` COM-retry | готово |
+| `bot` очередь + фото + confirm + step | готово |
+| loft/sweep/boolean/сборка | **не** в стабильном API — см. ROADMAP |
 
-| Добавлено | Зачем |
-|-----------|--------|
-| `knowledge/CAD_PATTERNS.md` | короткие схемы (не гигантский мануал) |
-| подмешивание в промпт | модель «читает» паттерны каждый раз |
-| `sk.slot` / `sk.arc` | пазы и дуги |
-| промпт | сложные формы, дерево операций |
-
-**Размерные линии эскиза** в КОМПАС через COM почти не автоматизируют «как в UI» — координаты задаём числами в коде (это нормально для API).
-
-**Фаски / скругления / уклоны** — частично (`chamfer`/`fillet` эксперимент); полноценный выбор рёбер и draft — следующий слой core.
-
-## Проверка сложных форм
+## Проверки
 
 ```powershell
-python -m agent.build "Плита 120x80x15, паз шириной 10 длиной 40 по центру глубиной 6, 4 отверстия диаметр 8 отступ 12"
-python -m agent.build "Кронштейн: основание 80x50x8, вертикальная стенка 80x40x8 сбоку"
+# КОМПАС открыт
+python -m agent.build "Фланец диаметр 80 толщина 10, центр 20, 4 отверстия 9 на диаметре 55"
+
+# vision (нужен GEMINI_API_KEY)
+python -c "from agent.vision import analyze_drawing; print(analyze_drawing(r'path\\to\\drawing.jpg'))"
+
+# бот
+# .env: TELEGRAM_BOT_TOKEN + GEMINI_API_KEY + GROQ_API_KEY
+python -m bot
 ```
 
-## Про базу знаний
+## .env
 
-Файл `knowledge/CAD_PATTERNS.md` — **сжатый**. Туда можно дописывать 5–15 строк на новый тип детали (не целые учебники). Агент подхватывает автоматически.
-
-## Дальше по core (когда будешь готов)
-
-1. Стабильные chamfer/fillet под твой КОМПАС  
-2. Смещённая плоскость  
-3. Уклон (draft), если найдём рабочий NewEntity id  
+```
+LLM_PROVIDER=groq
+GROQ_API_KEY=
+GEMINI_API_KEY=
+VISION_PROVIDER=auto
+TELEGRAM_BOT_TOKEN=
+```

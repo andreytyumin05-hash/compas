@@ -17,6 +17,11 @@ scripts/generated/
 responce.txt
 response.txt
 answers
+answers.txt
+.compas_tmp/
 *.a3d
 *.m3d
 *.cdw
+*.step
+*.stp
+*.stl

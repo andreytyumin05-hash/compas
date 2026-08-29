@@ -1,17 +1,15 @@
 """
-Запуск: python -m bot
+Telegram-бот: текст или фото чертежа → подтверждение → очередь → КОМПАС → файл.
 
-Нужны в .env:
   TELEGRAM_BOT_TOKEN=...
-  (и ключи LLM как для agent)
-
-КОМПАС-3D должен быть запущен на этом компьютере.
-Бот вызывает agent.build.run_task — только на машине с КОМПАС.
+  GEMINI_API_KEY=...   # для vision
+  python -m bot
 """
 
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import sys
 from pathlib import Path
@@ -24,53 +22,180 @@ if str(_ROOT) not in sys.path:
 
 load_dotenv(_ROOT / ".env")
 
+logging.basicConfig(level=logging.INFO)
+log = logging.getLogger("compas.bot")
+
+# user_id -> pending spec dict
+_pending_specs: dict[int, dict] = {}
+
 
 def main() -> None:
     token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
     if not token:
         print("Задайте TELEGRAM_BOT_TOKEN в .env")
-        print("Создать бота: @BotFather → /newbot → вставить токен в .env")
         sys.exit(1)
 
     try:
-        from telegram import Update
-        from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+        from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+        from telegram.ext import (
+            Application,
+            CommandHandler,
+            MessageHandler,
+            CallbackQueryHandler,
+            filters,
+            ContextTypes,
+        )
     except ImportError:
-        print("Установите: pip install python-telegram-bot")
+        print("pip install python-telegram-bot")
         sys.exit(1)
+
+    from agent.schema import format_spec_for_user, spec_to_task_text
+    from bot.queue import build_queue, Job
+    from bot.sessions import session_workspace
+
+    async def worker(job: Job) -> None:
+        def _build() -> str:
+            from agent.build import run_task
+
+            return run_task(job.description)
+
+        try:
+            code = await asyncio.wait_for(asyncio.to_thread(_build), timeout=300)
+            if not job.future.done():
+                job.future.set_result({"code": code, "ok": True})
+        except Exception as e:
+            if not job.future.done():
+                job.future.set_exception(e)
+
+    async def post_init(app: Application) -> None:
+        await build_queue.start(worker)
 
     async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text(
-            "Пришли текстовое описание детали.\n"
-            "Пример: Втулка наружный 40 внутренний 20 длина 50\n"
+            "compas-бот\n\n"
+            "• текст: описание детали\n"
+            "• фото: чертёж → распознаю → подтвердите → строю в КОМПАС\n\n"
             "КОМПАС должен быть открыт на этом ПК."
         )
+
+    async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        uid = update.effective_user.id
+        await update.message.reply_text("Распознаю чертёж…")
+        photo = update.message.photo[-1]
+        tg_file = await photo.get_file()
+
+        with session_workspace(uid) as ws:
+            img_path = ws / "drawing.jpg"
+            await tg_file.download_to_drive(str(img_path))
+
+            def _vision():
+                from agent.vision import analyze_drawing
+
+                return analyze_drawing(img_path)
+
+            try:
+                spec = await asyncio.to_thread(_vision)
+            except Exception as e:
+                await update.message.reply_text(f"Не удалось распознать: {e}")
+                return
+
+            # spec держим в памяти; файл рисунка удалится с ws
+            _pending_specs[uid] = spec
+
+        text = format_spec_for_user(spec)
+        kb = InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton("✅ Верно, строить", callback_data="spec_ok"),
+                    InlineKeyboardButton("❌ Нет", callback_data="spec_no"),
+                ]
+            ]
+        )
+        await update.message.reply_text(text, reply_markup=kb)
+
+    async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        q = update.callback_query
+        await q.answer()
+        uid = update.effective_user.id
+        if q.data == "spec_no":
+            _pending_specs.pop(uid, None)
+            await q.edit_message_text("Ок, пришлите другое фото или текст с размерами.")
+            return
+        if q.data != "spec_ok":
+            return
+        spec = _pending_specs.pop(uid, None)
+        if not spec:
+            await q.edit_message_text("Спецификация устарела — пришлите фото снова.")
+            return
+        task = spec_to_task_text(spec)
+        await q.edit_message_text("В очереди на построение…\n" + task[:500])
+        await _enqueue_build(update, context, task, reply_to=q.message)
+
+    async def _enqueue_build(update, context, task: str, reply_to=None) -> None:
+        uid = update.effective_user.id
+        job = await build_queue.submit(uid, task)
+        msg = reply_to or update.message
+        await msg.reply_text(
+            f"Позиция в очереди: ~{job.position}. Строю (один КОМПАС — по очереди)…"
+        )
+        try:
+            result = await asyncio.wait_for(job.future, timeout=360)
+            code = result.get("code", "")
+            preview = code if len(code) < 3000 else code[:3000] + "\n..."
+            await msg.reply_text(
+                "Готово.\n```python\n" + preview + "\n```",
+                parse_mode="Markdown",
+            )
+            # экспорт best-effort
+            try:
+
+                def _exp():
+                    from core import Part
+                    from bot.sessions import session_workspace as sw
+                    # already cleaned; new short session for file
+                    return None
+
+                # отдельная сессия под файл
+                from core import Part
+                from core.export import session_dir, safe_delete_path
+
+                out_dir = session_dir(str(uid))
+                try:
+                    p = Part.from_active()
+                    out = p.export(out_dir / "part.step", fmt="step")
+                    await msg.reply_document(document=open(out, "rb"), filename="part.step")
+                finally:
+                    safe_delete_path(out_dir)
+            except Exception as ex:
+                await msg.reply_text(
+                    f"Модель в КОМПАС готова; экспорт файла не удался: {ex}"
+                )
+        except Exception as e:
+            await msg.reply_text(f"Ошибка построения: {e}")
 
     async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         task = (update.message.text or "").strip()
         if not task:
             return
-        await update.message.reply_text("Строю… (LLM + КОМПАС)")
+        # если ждём правку спеки — можно расширить позже
+        low = task.lower()
+        if low in ("да", "yes", "ок", "ok", "верно") and update.effective_user.id in _pending_specs:
+            spec = _pending_specs.pop(update.effective_user.id)
+            await _enqueue_build(update, context, spec_to_task_text(spec))
+            return
+        await _enqueue_build(update, context, task)
 
-        def _work() -> str:
-            from agent.build import run_task
-
-            return run_task(task)
-
-        try:
-            code = await asyncio.to_thread(_work)
-            preview = code if len(code) < 3500 else code[:3500] + "\n..."
-            await update.message.reply_text(
-                "Готово. Код:\n```python\n" + preview + "\n```",
-                parse_mode="Markdown",
-            )
-        except Exception as e:
-            await update.message.reply_text(f"Ошибка: {e}")
-
-    app = Application.builder().token(token).build()
+    app = (
+        Application.builder()
+        .token(token)
+        .post_init(post_init)
+        .build()
+    )
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CallbackQueryHandler(on_callback))
+    app.add_handler(MessageHandler(filters.PHOTO, on_photo))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
-    print("Bot polling… Ctrl+C to stop")
+    print("Bot polling… КОМПАС должен быть запущен.")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 

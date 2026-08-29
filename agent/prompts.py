@@ -1,4 +1,4 @@
-"""Системный промпт: API core + CAD-логика + паттерны."""
+"""Системный промпт: API core + CAD + few-shot."""
 
 from .knowledge import load_patterns
 
@@ -13,37 +13,72 @@ part = Part.create("Имя")
 with part.sketch("xy") as sk:   # xy | xz | yz
     sk.circle(xc, yc, radius)   # radius = D/2
     sk.rectangle(x, y, w, h)
+    sk.rounded_rect(x, y, w, h, radius=5)
+    sk.ellipse(xc, yc, rx, ry)
     sk.line(x1, y1, x2, y2)
     sk.polygon([(x,y), ...], closed=True)
-    sk.arc(x1,y1, x2,y2, x3,y3)   # дуга по 3 точкам
-    sk.slot(x1,y1, x2,y2, width)  # прямой паз
+    sk.arc(x1,y1, x2,y2, x3,y3)
+    sk.slot(x1,y1, x2,y2, width)
+    sk.spline([(x,y), ...], closed=False)
 
 part.extrude(sk, depth=H)
-part.extrude(sk, depth=H, both_directions=True)
 part.cut(sk, through_all=True)
-part.cut(sk, depth=d)             # карман / несквозной паз
+part.cut(sk, depth=d)
 part.revolve(sk, angle=360.0)
-part.chamfer(size=1.0)            # эксперимент
-part.fillet(radius=1.0)           # эксперимент
+part.hole(x, y, diameter=D, through_all=True)
+part.pattern_holes_circular((0,0), pcd=55, count=4, diameter=9)
+part.pattern_holes_rect(10, 10, 90, 50, diameter=9)
+part.chamfer(size=1.0)    # эксперимент
+part.fillet(radius=1.0)   # эксперимент
+part.update()
+```
+'''
+
+_FEW_SHOT = '''
+## Примеры (few-shot)
+
+### Втулка Ø40/Ø20 L=50
+```python
+from core import Part
+part = Part.create("Втулка")
+with part.sketch("xy") as sk:
+    sk.circle(0, 0, 20)
+part.extrude(sk, depth=50)
+part.hole(0, 0, diameter=20, through_all=True)
 part.update()
 ```
 
-Код: валидный Python, `from core import Part` с колонки 0, без общего отступа строк.
+### Фланец Ø80 t=10, центр Ø20, 4×Ø9 на PCD55
+```python
+from core import Part
+part = Part.create("Фланец")
+with part.sketch("xy") as sk:
+    sk.circle(0, 0, 40)
+part.extrude(sk, depth=10)
+part.hole(0, 0, diameter=20, through_all=True)
+part.pattern_holes_circular((0, 0), pcd=55, count=4, diameter=9)
+part.update()
+```
+
+### Плита 100×60×8, 4 отверстия Ø9 отступ 10
+```python
+from core import Part
+part = Part.create("Плита")
+with part.sketch("xy") as sk:
+    sk.rectangle(0, 0, 100, 60)
+part.extrude(sk, depth=8)
+part.pattern_holes_rect(10, 10, 90, 50, diameter=9)
+part.update()
+```
 '''
 
 _RULES = '''
-## Инженерные правила
-
-1. mm; ØD → radius D/2; «радиус R» → R.
-2. Дерево: эскиз → операция → … Тело до вырезов.
-3. Отверстия: circles + cut(through_all=True) — иначе дыр нет.
-4. Втулка: outer extrude, inner cut — НЕ два circle в одном extrude.
-5. Паз: sk.slot(...) или rectangle → cut.
-6. Карман: контур → cut(depth < толщины).
-7. n отверстий на диаметре PCD: R=PCD/2, углы k*360/n.
-8. Симметрия: центр в (0,0) предпочтителен.
-9. Нет API (размерные линии эскиза, уклон по грани, резьба) — геометрия числами + # TODO.
-10. Не win32com, не выдуманные методы.
+## Правила
+1. mm; ØD → radius D/2 в circle; в hole() передавай diameter.
+2. Дерево: эскиз → операция. Отверстия: hole/pattern_* или circle+cut.
+3. Втулка: extrude наружного + hole/cut внутреннего — НЕ два circle в одном extrude.
+4. Не win32com. Не выдумывай методы.
+5. Код с колонки 0, без общего отступа строк.
 '''
 
 
@@ -51,34 +86,31 @@ def get_system_prompt() -> str:
     patterns = load_patterns()
     return (
         "Ты инженер-конструктор КОМПАС-3D. Пишешь только код через core.\n"
-        "Мысли деревом построения CAD, не «одной картинкой».\n\n"
         + _API_BLOCK
-        + "\n"
+        + _FEW_SHOT
         + _RULES
-        + "\n## Справочник паттернов\n\n"
+        + "\n## Паттерны\n\n"
         + patterns
-        + "\n\n## Формат\n\nКраткий план (шаги дерева), затем один блок ```python```. Ничего после.\n"
+        + "\n\nФормат: краткий план, затем один блок ```python```.\n"
     )
 
 
-# для обратной совместимости импортов
 SYSTEM_PROMPT = get_system_prompt()
 
 
 def build_user_prompt(task: str) -> str:
     return (
-        "Спроектируй деталь (дерево эскиз→операция) и выдай код core.\n"
-        "Сложные формы: несколько эскизов, slot/arc/pocket/flange patterns.\n\n"
+        "Спроектируй деталь и выдай код core. "
+        "Отверстия через hole/pattern_* или cut.\n\n"
         f"Задача:\n{task.strip()}"
     )
 
 
 def build_repair_prompt(task: str, bad_code: str, errors: list) -> str:
-    err = "\n".join(f"- {e}" for e in errors) or "- синтаксис/логика"
+    err = "\n".join(f"- {e}" for e in errors) or "- ошибка"
     return (
-        "Исправь как конструктор.\n"
+        "Исправь код.\n"
         f"Ошибки:\n{err}\n\n"
-        "Отверстия → cut; втулка → extrude+cut; slot при пазах; radius=D/2.\n\n"
         f"Задача:\n{task.strip()}\n\n"
         f"Плохой код:\n```python\n{bad_code}\n```\n\n"
         "Только исправленный ```python```."

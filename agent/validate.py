@@ -6,30 +6,14 @@ import ast
 import re
 from typing import List, Tuple
 
-_ALLOWED_IMPORT = re.compile(
-    r"^\s*from\s+core\s+import\s+Part\s*$"
-)
+_ALLOWED_IMPORT = re.compile(r"^\s*from\s+core\s+import\s+Part\s*$")
 
-# методы, которые можно звать у part / sk
-_PART_METHODS = {
-    "create",
-    "sketch",
-    "extrude",
-    "cut",
-    "revolve",
-    "chamfer",
-    "fillet",
-    "update",
-    "name",
-}
-_SKETCH_METHODS = {
-    "circle",
-    "rectangle",
-    "line",
-    "polygon",
-    "arc",
-    "slot",
-}
+# depth=/diameter=/radius= отрицательные или нулевые — частые баги
+_NEG_NUM = re.compile(
+    r"(?:depth|diameter|radius|width|height|pcd)\s*=\s*-\s*\d",
+    re.I,
+)
+_ZERO_DEPTH = re.compile(r"extrude\s*\([^)]*depth\s*=\s*0\s*[,)]", re.I)
 
 
 def validate_generated_code(code: str) -> Tuple[bool, List[str]]:
@@ -39,7 +23,7 @@ def validate_generated_code(code: str) -> Tuple[bool, List[str]]:
         return False, ["пустой код"]
 
     try:
-        tree = ast.parse(code)
+        ast.parse(code)
     except SyntaxError as e:
         return False, [f"синтаксис: {e}"]
 
@@ -66,8 +50,14 @@ def validate_generated_code(code: str) -> Tuple[bool, List[str]]:
         errors.append("ожидается Part.create(...)")
 
     banned = ("win32com", "gencache", "Dispatch", "GetActiveObject", "diameter=")
-    for b in banned:
+    # diameter= разрешён в hole(diameter=...) — уберём ложный banned
+    for b in ("win32com", "gencache", "Dispatch", "GetActiveObject"):
         if b in code:
             errors.append(f"запрещено: {b}")
+
+    if _NEG_NUM.search(code):
+        errors.append("отрицательный размер (depth/diameter/radius/…)")
+    if _ZERO_DEPTH.search(code):
+        errors.append("extrude с depth=0")
 
     return (len(errors) == 0, errors)
