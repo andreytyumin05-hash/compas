@@ -1,45 +1,36 @@
-# agent-v2-vision — что делать
+# agent-v2-vision — итерация 2 (рёбра)
 
 ```powershell
 git fetch
 git checkout agent-v2-vision
 git pull origin agent-v2-vision
-pip install -r requirements.txt
 ```
 
-## Уже в ветке
+## Задача 1 — что проверить тебе
 
-| Модуль | Статус |
-|--------|--------|
-| `core/sketch` ellipse, rounded_rect, spline, slot | готово |
-| `core/features` hole, pattern holes | готово |
-| `core/export`, `mass` | готово (best-effort COM) |
-| `Part.hole / pattern_* / export` | готово |
-| `agent/vision.py` | Gemini → OpenRouter |
-| `agent/build` COM-retry | готово |
-| `bot` очередь + фото + confirm + step | готово |
-| loft/sweep/boolean/сборка | **не** в стабильном API — см. ROADMAP |
-
-## Проверки
+КОМПАС открыт:
 
 ```powershell
-# КОМПАС открыт
-python -m agent.build "Фланец диаметр 80 толщина 10, центр 20, 4 отверстия 9 на диаметре 55"
-
-# vision (нужен GEMINI_API_KEY)
-python -c "from agent.vision import analyze_drawing; print(analyze_drawing(r'path\\to\\drawing.jpg'))"
-
-# бот
-# .env: TELEGRAM_BOT_TOKEN + GEMINI_API_KEY + GROQ_API_KEY
-python -m bot
+python -m core.smoke_edges
+python -m core.smoke_edges cube
+python -m core.smoke_edges bushing
+python -m core.smoke_edges plate
 ```
 
-## .env
+Ожидание в логе: `edges collected: N` (N>0), затем `OK` или понятный `KompasOperationError`.
 
+Пришли в чат **полный stdout** тестов. Скриншоты моделей — по возможности.
+
+## API для кода/LLM
+
+```python
+edges = part.get_edges("all")
+part.fillet(edges, radius=1.0)
+part.chamfer(edges, distance=0.5)
 ```
-LLM_PROVIDER=groq
-GROQ_API_KEY=
-GEMINI_API_KEY=
-VISION_PROVIDER=auto
-TELEGRAM_BOT_TOKEN=
-```
+
+См. `docs/LIMITATIONS_EDGES.md` — что может не взлететь на твоей версии COM.
+
+## Ещё не делали в этой итерации
+
+Задачи 2–5 (loft, native m3d/cdw, cleanup документа, кнопки форматов) — **после** подтверждения smoke_edges.

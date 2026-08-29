@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple, Union
 
 from .connection import (
     KompasApp,
@@ -17,6 +17,7 @@ from .connection import (
 )
 from .exceptions import KompasError, KompasOperationError
 from .sketch import Sketch
+from .edges import EdgeSet, get_edges as _get_edges
 from . import operations
 from . import features as _features
 from . import export as _export
@@ -174,26 +175,83 @@ class Part:
         return result
 
     def revolve(self, sketch: Sketch, angle: float = 360.0) -> Any:
-        """Тело вращения. Example: part.revolve(sk, angle=360)"""
         result = operations.revolve(self, sketch, angle=angle)
         self._feature_count += 1
         return result
 
-    def chamfer(self, size: float = 1.0) -> Any:
-        """Фаска (эксперимент). Example: part.chamfer(size=1.0)"""
-        if size <= 0:
-            raise KompasOperationError("chamfer: size > 0")
-        from .part_advanced import try_chamfer
+    def get_edges(
+        self,
+        filter: str = "all",
+        *,
+        point: Optional[Tuple[float, float, float]] = None,
+        tol: float = 1.0,
+    ) -> EdgeSet:
+        """
+        Рёбра тела по предикату (не сырые COM-ID).
 
-        return try_chamfer(self, size)
+        filter: all | parallel_x/y/z | near_point | top_z | bottom_z
 
-    def fillet(self, radius: float = 1.0) -> Any:
-        """Скругление (эксперимент). Example: part.fillet(radius=2.0)"""
-        if radius <= 0:
+        Example:
+            edges = part.get_edges("all")
+            edges = part.get_edges("parallel_z")
+            edges = part.get_edges("near_point", point=(0, 0, 25), tol=2)
+        """
+        return _get_edges(self._part, filter, point=point, tol=tol)
+
+    def chamfer(
+        self,
+        edges: Union[EdgeSet, float, None] = None,
+        distance: Optional[float] = None,
+        *,
+        size: Optional[float] = None,
+    ) -> Any:
+        """
+        Фаска по EdgeSet.
+
+        Example:
+            part.chamfer(part.get_edges("all"), distance=1.0)
+            part.chamfer(size=1.0)  # все рёбра (совместимость)
+        """
+        from .part_advanced import apply_chamfer, try_chamfer
+
+        # legacy: chamfer(size=1.0) or chamfer(1.0)
+        if isinstance(edges, (int, float)) and distance is None:
+            return try_chamfer(self, float(edges))
+        if edges is None or isinstance(edges, (int, float)):
+            d = float(size or distance or edges or 0)
+            return try_chamfer(self, d)
+        d = float(distance if distance is not None else (size or 0))
+        if d <= 0:
+            raise KompasOperationError("chamfer: distance > 0")
+        if not isinstance(edges, EdgeSet):
+            raise KompasOperationError("chamfer: нужен EdgeSet из part.get_edges(...)")
+        return apply_chamfer(self, edges, d)
+
+    def fillet(
+        self,
+        edges: Union[EdgeSet, float, None] = None,
+        radius: Optional[float] = None,
+    ) -> Any:
+        """
+        Скругление по EdgeSet.
+
+        Example:
+            part.fillet(part.get_edges("all"), radius=1.0)
+            part.fillet(radius=1.0)  # все рёбра
+        """
+        from .part_advanced import apply_fillet, try_fillet
+
+        if isinstance(edges, (int, float)) and radius is None:
+            return try_fillet(self, float(edges))
+        if edges is None or isinstance(edges, (int, float)):
+            r = float(radius if radius is not None else edges or 0)
+            return try_fillet(self, r)
+        r = float(radius or 0)
+        if r <= 0:
             raise KompasOperationError("fillet: radius > 0")
-        from .part_advanced import try_fillet
-
-        return try_fillet(self, radius)
+        if not isinstance(edges, EdgeSet):
+            raise KompasOperationError("fillet: нужен EdgeSet из part.get_edges(...)")
+        return apply_fillet(self, edges, r)
 
     def hole(
         self,
@@ -205,7 +263,6 @@ class Part:
         through_all: bool = True,
         plane: str = "xy",
     ) -> None:
-        """Отверстие. Example: part.hole(0, 0, diameter=10, through_all=True)"""
         _features.hole(
             self, x, y, diameter, depth=depth, through_all=through_all, plane=plane
         )
@@ -222,7 +279,6 @@ class Part:
         depth: float = 0.0,
         plane: str = "xy",
     ) -> None:
-        """Круговой массив отверстий на PCD."""
         _features.pattern_holes_circular(
             self,
             center,
@@ -247,7 +303,6 @@ class Part:
         depth: float = 0.0,
         plane: str = "xy",
     ) -> None:
-        """4 отверстия в углах прямоугольника."""
         _features.pattern_holes_rect(
             self,
             x1,
@@ -261,11 +316,9 @@ class Part:
         )
 
     def export(self, path: str | Path, fmt: str = "step") -> Path:
-        """Экспорт STEP/STL. Example: part.export('out/a.step')"""
         return _export.export_part(self, path, fmt=fmt)
 
     def mass_properties(self) -> Dict[str, Any]:
-        """Масса/объём best-effort."""
         return _mass.get_mass_properties(self)
 
     def update(self) -> None:

@@ -10,8 +10,8 @@ from core import Part
 
 part = Part.create("Имя")
 
-with part.sketch("xy") as sk:   # xy | xz | yz
-    sk.circle(xc, yc, radius)   # radius = D/2
+with part.sketch("xy") as sk:
+    sk.circle(xc, yc, radius)
     sk.rectangle(x, y, w, h)
     sk.rounded_rect(x, y, w, h, radius=5)
     sk.ellipse(xc, yc, rx, ry)
@@ -28,14 +28,32 @@ part.revolve(sk, angle=360.0)
 part.hole(x, y, diameter=D, through_all=True)
 part.pattern_holes_circular((0,0), pcd=55, count=4, diameter=9)
 part.pattern_holes_rect(10, 10, 90, 50, diameter=9)
-part.chamfer(size=1.0)    # эксперимент
-part.fillet(radius=1.0)   # эксперимент
+
+# Фаска / скругление — только через get_edges
+edges = part.get_edges("all")  # или parallel_z, top_z, near_point
+part.fillet(edges, radius=1.0)
+part.chamfer(edges, distance=0.5)
+
 part.update()
 ```
+
+Не выдумывай loft/sweep/boolean — их нет в API.
 '''
 
 _FEW_SHOT = '''
-## Примеры (few-shot)
+## Примеры
+
+### Куб со скруглением
+```python
+from core import Part
+part = Part.create("Куб")
+with part.sketch("xy") as sk:
+    sk.rectangle(-15, -15, 30, 30)
+part.extrude(sk, depth=30)
+edges = part.get_edges("all")
+part.fillet(edges, radius=2.0)
+part.update()
+```
 
 ### Втулка Ø40/Ø20 L=50
 ```python
@@ -48,7 +66,7 @@ part.hole(0, 0, diameter=20, through_all=True)
 part.update()
 ```
 
-### Фланец Ø80 t=10, центр Ø20, 4×Ø9 на PCD55
+### Фланец
 ```python
 from core import Part
 part = Part.create("Фланец")
@@ -59,39 +77,27 @@ part.hole(0, 0, diameter=20, through_all=True)
 part.pattern_holes_circular((0, 0), pcd=55, count=4, diameter=9)
 part.update()
 ```
-
-### Плита 100×60×8, 4 отверстия Ø9 отступ 10
-```python
-from core import Part
-part = Part.create("Плита")
-with part.sketch("xy") as sk:
-    sk.rectangle(0, 0, 100, 60)
-part.extrude(sk, depth=8)
-part.pattern_holes_rect(10, 10, 90, 50, diameter=9)
-part.update()
-```
 '''
 
 _RULES = '''
 ## Правила
-1. mm; ØD → radius D/2 в circle; в hole() передавай diameter.
-2. Дерево: эскиз → операция. Отверстия: hole/pattern_* или circle+cut.
-3. Втулка: extrude наружного + hole/cut внутреннего — НЕ два circle в одном extrude.
-4. Не win32com. Не выдумывай методы.
-5. Код с колонки 0, без общего отступа строк.
+1. mm; hole(diameter=...); circle radius=D/2.
+2. Фаска/скругление: сначала get_edges, потом fillet/chamfer.
+3. Нет loft/sweep/boolean в API.
+4. Код с колонки 0.
 '''
 
 
 def get_system_prompt() -> str:
     patterns = load_patterns()
     return (
-        "Ты инженер-конструктор КОМПАС-3D. Пишешь только код через core.\n"
+        "Ты инженер-конструктор КОМПАС-3D. Только core.\n"
         + _API_BLOCK
         + _FEW_SHOT
         + _RULES
         + "\n## Паттерны\n\n"
         + patterns
-        + "\n\nФормат: краткий план, затем один блок ```python```.\n"
+        + "\n\nФормат: план + один блок ```python```.\n"
     )
 
 
@@ -100,8 +106,7 @@ SYSTEM_PROMPT = get_system_prompt()
 
 def build_user_prompt(task: str) -> str:
     return (
-        "Спроектируй деталь и выдай код core. "
-        "Отверстия через hole/pattern_* или cut.\n\n"
+        "Спроектируй деталь, код только core.\n\n"
         f"Задача:\n{task.strip()}"
     )
 
@@ -109,7 +114,7 @@ def build_user_prompt(task: str) -> str:
 def build_repair_prompt(task: str, bad_code: str, errors: list) -> str:
     err = "\n".join(f"- {e}" for e in errors) or "- ошибка"
     return (
-        "Исправь код.\n"
+        "Исправь код с учётом ошибок выполнения/валидации.\n"
         f"Ошибки:\n{err}\n\n"
         f"Задача:\n{task.strip()}\n\n"
         f"Плохой код:\n```python\n{bad_code}\n```\n\n"
