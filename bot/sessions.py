@@ -13,7 +13,7 @@ log = logging.getLogger("compas.bot")
 
 
 @contextmanager
-session_workspace(user_id: int) -> Iterator[Path]:
+def session_workspace(user_id: int) -> Iterator[Path]:
     path = session_dir(str(user_id))
     try:
         yield path
