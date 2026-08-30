@@ -1,20 +1,10 @@
-# Ошибка rounded_rect — исправлено
-
-```
-Параметр является обязательным
-```
-
-В КОМПАС у `ksArcByPoint` нужен **direction** (1 / -1), без него COM падает.  
-Теперь дуги через `ksArcByAngle` + fallback с direction.
+# Сейчас
 
 ```powershell
 git pull origin agent-v2-vision
-
-# КОМПАС открыт:
 python -m core.smoke_rounded
-
-# или
-python -m agent.build "Крышка length=116 width=80 thickness=13 outer_radius=40 boss_height=18 inner_radius=30"
 ```
 
-Ждём `OK` / `Готово`. Потом `python -m bot` и фото снова.
+Если FAIL — открой в VS Code файл **`CODEX_CHECKLIST.md`** и отдай его локальному агенту (Codex): там расписано, что проверить и как чинить `ksArc*` на КОМПАС v23.
+
+Ручной фикс тоже там: `core/sketch.py` → direction у дуги.
