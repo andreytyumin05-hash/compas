@@ -1,10 +1,5 @@
 """
-Telegram-бот: текст / фото → очередь → КОМПАС → файлы (m3d, step) → удаление tmp.
-
-  TELEGRAM_BOT_TOKEN=
-  GROQ_API_KEY=
-  GEMINI_API_KEY=          # для фото
-  python -m bot
+Telegram-бот: текст / фото → очередь → КОМПАС → m3d+step → удаление tmp.
 """
 
 from __future__ import annotations
@@ -12,6 +7,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -27,6 +23,31 @@ logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("compas.bot")
 
 _pending_specs: dict[int, dict] = {}
+
+_GREETING = re.compile(
+    r"^(привет|здравствуй|здравствуйте|hello|hi|hey|добрый\s+(день|вечер|утро)|"
+    r"как дела|что умеешь|/start)\s*[!.]?$",
+    re.I,
+)
+
+
+def _looks_like_part_task(text: str) -> bool:
+    """Отсечь болтовню: нужна хоть намёк на геометрию/деталь."""
+    t = text.strip()
+    if len(t) < 8:
+        return False
+    if _GREETING.match(t):
+        return False
+    # цифры или типичные слова
+    if re.search(r"\d", t):
+        return True
+    keys = (
+        "втулк", "фланец", "плит", "вал", "отверст", "цилиндр",
+        "куб", "пластин", "детал", "диаметр", "толщин", "длин",
+        "фаск", "скругл", "паз", "бобыш", "кронштейн",
+    )
+    low = t.lower()
+    return any(k in low for k in keys)
 
 
 def main() -> None:
@@ -74,10 +95,10 @@ def main() -> None:
     async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text(
             "compas-бот\n\n"
-            "• текст — описание детали\n"
-            "• фото чертежа — распознаю → подтверждение → сборка\n"
-            "• пришлю .m3d (КОМПАС) и .step, локальные файлы удалю\n\n"
-            "КОМПАС на этом ПК; GROQ_API_KEY; для фото — GEMINI_API_KEY."
+            "Напишите описание детали с размерами, например:\n"
+            "Втулка наружный 40 внутренний 20 длина 50\n\n"
+            "Или пришлите фото чертежа (нужен GEMINI_API_KEY).\n"
+            "КОМПАС должен быть открыт на этом ПК."
         )
 
     async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -99,7 +120,11 @@ def main() -> None:
                 spec = await asyncio.to_thread(_vision)
             except Exception as e:
                 await update.message.reply_text(
-                    f"Не распознал: {e}\nНужен GEMINI_API_KEY или пришлите размеры текстом."
+                    f"Не распознал: {e}\n\n"
+                    "Проверьте в .env:\n"
+                    "GEMINI_API_KEY=...\n"
+                    "VISION_MODEL=gemini-2.0-flash\n"
+                    "(LLM_MODEL для Groq на vision не влияет)"
                 )
                 return
 
@@ -150,13 +175,9 @@ def main() -> None:
             for path in paths:
                 try:
                     with open(path, "rb") as f:
-                        await msg.reply_document(
-                            document=f, filename=path.name
-                        )
+                        await msg.reply_document(document=f, filename=path.name)
                 except Exception as e:
                     await msg.reply_text(f"Не отправил {path.name}: {e}")
-            if not paths:
-                await msg.reply_text("Модель в КОМПАС есть, файлы не сохранились.")
         except Exception as ex:
             await msg.reply_text(f"Экспорт: {ex}")
         finally:
@@ -190,6 +211,13 @@ def main() -> None:
         ):
             spec = _pending_specs.pop(update.effective_user.id)
             await _enqueue_build(update, context, spec_to_task_text(spec))
+            return
+        if not _looks_like_part_task(task):
+            await update.message.reply_text(
+                "Напишите задачу на деталь с размерами, например:\n"
+                "Втулка наружный 40 внутренний 20 длина 50\n\n"
+                "Или пришлите фото чертежа."
+            )
             return
         await _enqueue_build(update, context, task)
 
