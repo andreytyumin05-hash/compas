@@ -1,39 +1,50 @@
-"""
-Показать модели, доступные твоему ключу Groq.
-
-  python -m agent.list_models
-"""
+"""Список моделей Groq для текущего ключа."""
 
 from __future__ import annotations
 
+from .llm import list_groq_models, get_llm_client
 import os
-import sys
-
-from .llm import list_groq_models, _ENV_PATH
+from pathlib import Path
 from dotenv import load_dotenv
 
-if _ENV_PATH.exists():
-    load_dotenv(_ENV_PATH)
+_ROOT = Path(__file__).resolve().parent.parent
+load_dotenv(_ROOT / ".env")
+
+# предпочтительные для генерации кода (не TTS / guard)
+_PREFERRED = (
+    "openai/gpt-oss-120b",
+    "openai/gpt-oss-20b",
+    "qwen/qwen3.8-27b",
+    "llama-3.3-70b-versatile",
+    "llama-3.1-8b-instant",
+)
 
 
 def main() -> None:
-    key = os.getenv("GROQ_API_KEY", "")
+    key = os.getenv("GROQ_API_KEY", "").strip()
     if not key:
         print("GROQ_API_KEY не задан в .env")
-        print(f"Ожидаемый путь: {_ENV_PATH}")
-        sys.exit(1)
-
-    models = list_groq_models(key)
-    if not models:
-        print("Не удалось получить список моделей (пустой ответ или ошибка API).")
-        print("Проверь ключ на https://console.groq.com")
-        sys.exit(1)
-
-    print(f"Доступно моделей: {len(models)}\n")
-    for m in models:
+        return
+    ids = list_groq_models(key)
+    print(f"Доступно моделей: {len(ids)}\n")
+    for m in ids:
         print(f"  {m}")
-    print("\nПропиши в .env, например:")
-    print(f"  LLM_MODEL={models[0]}")
+
+    pick = None
+    for p in _PREFERRED:
+        if p in ids:
+            pick = p
+            break
+    if pick is None and ids:
+        for m in ids:
+            if "guard" not in m and "orpheus" not in m and "whisper" not in m:
+                pick = m
+                break
+        pick = pick or ids[0]
+
+    print("\nДля кода в .env лучше:")
+    print(f"  LLM_MODEL={pick}")
+    print("Не ставь allam / orpheus / prompt-guard — они не для CAD-кода.")
 
 
 if __name__ == "__main__":

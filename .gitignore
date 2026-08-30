@@ -13,12 +13,12 @@ build/
 .vscode/
 *.log
 .DS_Store
+.compas_tmp/
 scripts/generated/
 responce.txt
 response.txt
 answers
 answers.txt
-.compas_tmp/
 *.a3d
 *.m3d
 *.cdw

@@ -1,56 +1,49 @@
-# CAD-паттерны для агента (компактно)
+# CAD-паттерны (core)
 
-Не справочник SDK — рабочие схемы под `core`.
+## Дерево
+эскиз → extrude/cut → следующий эскиз → …  
+Отверстия только через `hole` / `cut`, не «круги в одном extrude с контуром».
 
-## Дерево построения
-
-Всегда: **эскиз → операция → эскиз → операция**.  
-Тело сначала, вырезы потом. Отверстия без `cut` не существуют.
-
-## Размеры в тексте
-
+## Размеры
 | Текст | Код |
 |-------|-----|
-| Ø20, диаметр 20, D20 | `circle(..., 10)` |
-| R5, радиус 5 | `circle(..., 5)` |
-| 100×60×8 (плита) | 100×60 в эскизе, depth=8 |
-| длина L втулки/вала | depth extrude |
-| отступ a от края, плита (0,0)–(W,H) | отверстия (a,a), (W-a,a), … |
-| n отверстий на диаметре PCD | R=PCD/2, углы 360/n |
+| Ø20 / D20 | `circle(..., 10)` или `hole(..., diameter=20)` |
+| R5 | radius=5 |
+| 100×60×8 | rectangle/rounded 100×60, depth=8 |
+| n отв. на PCD | `pattern_holes_circular((0,0), pcd=…, count=n, diameter=…)` |
 
-## Типовые детали
+## Stadium / овал / «облонг» R=половина ширины
+Не полигон. Только:
+```python
+sk.rounded_rect(-L/2, -W/2, L, W, radius=W/2)
+# или
+sk.stadium(-L/2, -W/2, L, W)
+```
+Пример крышка 116×80 t=13, R40, бобышка R30 h=18:
+```python
+from core import Part
+part = Part.create("Крышка")
+with part.sketch("xy") as sk:
+    sk.rounded_rect(-58, -40, 116, 80, radius=40)
+part.extrude(sk, depth=13)
+with part.sketch("xy") as sk2:
+    sk2.circle(0, 0, 30)
+part.extrude(sk2, depth=18)
+part.update()
+```
 
-### Плита / крышка
-1. rectangle → extrude(t)  
-2. optional pocket: rectangle → cut(depth)  
-3. holes: circles → cut through_all  
+## Втулка
+circle R_out → extrude(L) → hole(diameter=D_in) или cut.
 
-### Втулка / труба
-1. circle(R_out) → extrude(L)  
-2. circle(R_in) → cut through_all  
+## Фланец
+circle → extrude(t) → hole центр → pattern_holes_circular.
 
-### Фланец
-1. circle(R) → extrude(t)  
-2. center hole → cut through_all  
-3. bolt holes on BCD → cut through_all  
+## Фаска / скругление рёбер
+```python
+edges = part.get_edges("all")
+part.fillet(edges, radius=1.0)
+part.chamfer(edges, distance=0.5)
+```
 
-### Паз (slot)
-- Прямой паз: `sk.slot(x1,y1,x2,y2,width)` или rectangle + cut  
-- Шпоночный: узкий rectangle → cut(depth) или through_all  
-
-### Карман
-Контур внутри тела → `cut(depth)` где depth < толщины.
-
-### Ступень / бобышка
-Второй extrude после первого (boss) меньшим контуром на той же xy (упрощение без offset-plane).
-
-### «Стенка сбоку»
-Эскиз на `xz` или `yz` → extrude/cut (ограничение API: только базовые плоскости).
-
-## Чего пока нет в core (не выдумывать)
-
-- Параметрические размерные линии эскиза (в КОМПАС они интерактивны; код задаёт геометрию числами)
-- Выбор рёбер для идеальной фаски/скругления (chamfer/fillet — эксперимент)
-- Уклон (draft) по грани, резьба, массив по таблице
-
-При отсутствии API — максимальное приближение + `# TODO`.
+## Не выдумывать
+loft, sweep, boolean, win32com, произвольные имена методов.

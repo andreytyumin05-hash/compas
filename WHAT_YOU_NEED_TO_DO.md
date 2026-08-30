@@ -1,25 +1,30 @@
-# «пустой код» — что это
-
-Vision **ок** (крышка/flange распознана). Упало на **генерации Python** через Groq: модель вернула текст без блока ` ```python ` (или совсем пусто) → validate: «пустой код».
-
-## Исправлено в ветке
-- повторный запрос «только python-блок»
-- извлечение кода из сырого текста / think-тегов
-- чтение content у reasoning-моделей Groq
-- few-shot для stadium ≈ rounded_rect
+# После чистки agent-v2-vision
 
 ```powershell
 git pull origin agent-v2-vision
-# перезапуск бота
-python -m bot
 ```
 
-Локально без бота:
-```powershell
-python -m agent.runner "Крышка 116x80 толщина 13, rounded, бобышка R30 высота 18"
-```
+## Что починено
+1. **`rounded_rect`** — настоящие **дуги** (не ломаная из отрезков).
+2. **`sk.stadium(x,y,L,W)`** — овал.
+3. Validate режет **английскую прозу** модели в «коде».
+4. Knowledge + prompts под stadium/крышку.
+5. `list_models` советует **gpt-oss / qwen**, не allam/orpheus.
 
-Если снова пусто — `python -m agent.list_models` и поставь в `.env` явную chat-модель, например:
+## .env для кода (Groq)
 ```env
-LLM_MODEL=llama-3.3-70b-versatile
+LLM_MODEL=openai/gpt-oss-120b
+# или openai/gpt-oss-20b / qwen/qwen3.8-27b
 ```
+`python -m agent.list_models` — сверь id.
+
+## Проверки
+```powershell
+python -m agent.build "Крышка 116x80 толщина 13, rounded R40, бобышка R30 высота 18"
+# в КОМПАС края базы должны быть гладкими дугами
+```
+
+Бот: перезапуск `python -m bot`.
+
+## Не коммить
+`answers.txt` очищен; ключи/токены в answers не класть.
