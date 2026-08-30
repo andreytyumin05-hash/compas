@@ -200,6 +200,58 @@ def spec_to_task_text(spec: Dict[str, Any]) -> str:
     lines.append(f"Деталь: {name} (тип {ptype})")
     lines.append("Порядок: база → ступени/бобышки → карманы/отверстия → фаски/скругления")
 
+    construction = spec.get("construction") or {}
+    feature_order = construction.get("feature_order") or []
+    if feature_order:
+        norm_order = []
+        for item in feature_order:
+            raw = str(item).strip().lower()
+            mapped = {
+                "base": "base",
+                "extrude_body": "base",
+                "boss": "boss",
+                "step": "step",
+                "pocket": "pocket",
+                "recess": "pocket",
+                "hole": "hole",
+                "pattern_holes": "pattern_holes",
+                "fillet": "fillet",
+                "chamfer": "chamfer",
+                "slot": "slot",
+                "rib": "rib",
+            }.get(raw, raw)
+            if mapped not in norm_order:
+                norm_order.append(mapped)
+        if norm_order:
+            lines.append(f"feature_order={'->'.join(norm_order)}")
+    else:
+        order = []
+        for feat in spec.get("features") or []:
+            t = str(feat.get("type") or "")
+            mapped = {
+                "extrude_body": "base",
+                "boss": "boss",
+                "step": "step",
+                "pocket": "pocket",
+                "recess": "pocket",
+                "hole": "hole",
+                "pattern_holes": "pattern_holes",
+                "fillet": "fillet",
+                "chamfer": "chamfer",
+                "slot": "slot",
+                "rib": "rib",
+            }.get(t, t)
+            if mapped and mapped not in order:
+                order.append(mapped)
+        if order:
+            lines.append(f"feature_order={'->'.join(order)}")
+
+    for plane in construction.get("planes_used") or []:
+        if plane:
+            lines.append(f"plane={plane}")
+    if construction.get("notes"):
+        lines.append(str(construction["notes"]))
+
     overall = spec.get("overall") or {}
     for k in (
         "length",
@@ -219,7 +271,17 @@ def spec_to_task_text(spec: Dict[str, Any]) -> str:
         p = _flatten_params(feat.get("params"))
         lines.append(f"feature={ftype}")
         for key, val in p.items():
-            if isinstance(val, (int, float, str)) and str(val):
+            if not isinstance(val, (int, float, str)) or not str(val):
+                continue
+            if ftype in ("pocket", "recess") and key == "depth":
+                lines.append("pocket_depth=" + str(val))
+            elif ftype in ("pocket", "recess") and key == "pocket_depth":
+                lines.append("pocket_depth=" + str(val))
+            elif ftype == "fillet" and key == "radius":
+                lines.append("fillet_radius=" + str(val))
+            elif ftype == "chamfer" and key == "distance":
+                lines.append("chamfer_distance=" + str(val))
+            else:
                 lines.append(f"{key}={val}")
         if feat.get("notes"):
             lines.append(str(feat["notes"]))

@@ -19,6 +19,21 @@ class TryTemplateComplexCoverTest(unittest.TestCase):
         self.assertIn("part.cut(sk3, depth=8.0, through_all=False)", code)
         self.assertIn("pattern_holes_circular", code)
 
+    def test_real_stadium_cover_task_is_not_misdetected_as_cylinder(self):
+        task = (
+            "Основание 116x80x13 stadium, центральная бобышка Ø60 h18, "
+            "глухой карман Ø50 depth8, 4 отверстия PCD60 Ø8, скругление R2, фаска 1mm"
+        )
+
+        code = try_template(task)
+
+        self.assertIsNotNone(code)
+        self.assertIn("rounded_rect", code)
+        self.assertIn("part.extrude(sk, depth=13.0)", code)
+        self.assertIn("part.extrude(sk2, depth=18.0)", code)
+        self.assertIn("part.cut(sk3, depth=8.0, through_all=False)", code)
+        self.assertIn("pattern_holes_circular", code)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -9,7 +9,7 @@ from typing import Optional, Tuple
 from rich.console import Console
 from rich.syntax import Syntax
 
-from .code_fix import normalize_code, must_fix_holes
+from .code_fix import normalize_code, must_fix_holes, check_task_feature_requirements
 from .memory import remember
 from .prompts import build_repair_prompt, get_system_prompt
 from .runner import Agent
@@ -29,9 +29,11 @@ def execute_code(code: str) -> None:
 def run_task(task: str, *, max_com_retries: int = 2) -> str:
     agent = Agent()
     code, errors = agent.generate_checked(task)
-    if errors or must_fix_holes(code):
+    missing = check_task_feature_requirements(task, code)
+    if errors or must_fix_holes(code) or missing:
         raise RuntimeError(
-            "Код не прошёл проверку: " + "; ".join(errors or ["отверстия без cut"])
+            "Код не прошёл проверку: "
+            + "; ".join((errors or []) + (["не хватает фич из ТЗ: " + ", ".join(missing)] if missing else []) + (["отверстия без cut"] if must_fix_holes(code) else []))
         )
 
     last_err: Optional[BaseException] = None

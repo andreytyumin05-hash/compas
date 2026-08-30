@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from typing import List, Optional, Tuple
 
-from .code_fix import normalize_code, must_fix_holes
+from .code_fix import normalize_code, must_fix_holes, check_task_feature_requirements
 from .llm import get_llm_client, BaseLLM
 from .prompts import get_system_prompt, build_user_prompt, build_repair_prompt
 from .templates import try_template
@@ -23,7 +23,7 @@ class Agent:
         return self._llm
 
     def generate_checked(
-        self, task: str, temperature: float = 0.1, max_retries: int = 1
+        self, task: str, temperature: float = 0.1, max_retries: int = 3
     ) -> Tuple[str, List[str]]:
         tmpl = try_template(task)
         if tmpl:
@@ -61,6 +61,10 @@ class Agent:
             if ok and must_fix_holes(code):
                 ok = False
                 errors = list(errors) + ["отверстия без cut/hole"]
+            missing = check_task_feature_requirements(task, code)
+            if ok and missing:
+                ok = False
+                errors = list(errors) + ["не хватает фич из ТЗ: " + ", ".join(missing)]
             if ok:
                 return code, []
 
