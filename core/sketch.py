@@ -1,5 +1,7 @@
 """
 Эскиз API5: BeginEdit → ksCircle / ksLineSeg / ksArc → EndEdit.
+
+rounded_rect — линии + дуги (не полигон), иначе в КОМПАС «скругления» выглядят как ломаная.
 """
 
 from __future__ import annotations
@@ -79,8 +81,43 @@ class Sketch:
         if not was and self._editing:
             self.end()
 
+    def _ks_line(self, x1: float, y1: float, x2: float, y2: float, style: int = 1) -> None:
+        doc2d = self._ensure()
+        r = doc2d.ksLineSeg(float(x1), float(y1), float(x2), float(y2), int(style))
+        if r == 0:
+            raise KompasOperationError("ksLineSeg вернул 0")
+
+    def _ks_arc_3pt(
+        self,
+        x1: float,
+        y1: float,
+        x2: float,
+        y2: float,
+        x3: float,
+        y3: float,
+        style: int = 1,
+    ) -> None:
+        """Дуга по 3 точкам (начало, промежуточная, конец)."""
+        doc2d = self._ensure()
+        if hasattr(doc2d, "ksArcByPoint"):
+            r = doc2d.ksArcByPoint(
+                float(x1), float(y1), float(x2), float(y2),
+                float(x3), float(y3), int(style),
+            )
+        elif hasattr(doc2d, "ksArc"):
+            r = doc2d.ksArc(
+                float(x1), float(y1), float(x2), float(y2),
+                float(x3), float(y3), int(style),
+            )
+        else:
+            # крайний fallback — короткие сегменты только для этой дуги
+            self._ks_line(x1, y1, x2, y2, style)
+            self._ks_line(x2, y2, x3, y3, style)
+            return
+        if r == 0:
+            raise KompasOperationError("ksArc вернул 0")
+
     def circle(self, xc: float, yc: float, radius: float, style: int = 1) -> "Sketch":
-        """Окружность. radius > 0. Example: sk.circle(0, 0, 20)"""
         if radius <= 0:
             raise KompasOperationError(f"circle: radius > 0, получено {radius}")
         was = self._editing
@@ -88,7 +125,7 @@ class Sketch:
         try:
             result = doc2d.ksCircle(float(xc), float(yc), float(radius), int(style))
             if result == 0:
-                raise KompasOperationError("ksCircle вернул 0 (ошибка)")
+                raise KompasOperationError("ksCircle вернул 0")
         except KompasOperationError:
             self._auto_end(was)
             raise
@@ -99,21 +136,12 @@ class Sketch:
         return self
 
     def line(self, x1: float, y1: float, x2: float, y2: float, style: int = 1) -> "Sketch":
-        """Отрезок. Example: sk.line(0, 0, 50, 0)"""
         was = self._editing
-        doc2d = self._ensure()
         try:
-            result = doc2d.ksLineSeg(
-                float(x1), float(y1), float(x2), float(y2), int(style)
-            )
-            if result == 0:
-                raise KompasOperationError("ksLineSeg вернул 0")
-        except KompasOperationError:
-            self._auto_end(was)
-            raise
+            self._ks_line(x1, y1, x2, y2, style)
         except Exception as e:
             self._auto_end(was)
-            raise KompasOperationError(f"ksLineSeg: {e}") from e
+            raise KompasOperationError(f"line: {e}") from e
         self._auto_end(was)
         return self
 
@@ -127,30 +155,9 @@ class Sketch:
         y3: float,
         style: int = 1,
     ) -> "Sketch":
-        """Дуга по трём точкам (start, middle, end)."""
         was = self._editing
-        doc2d = self._ensure()
         try:
-            if hasattr(doc2d, "ksArcByPoint"):
-                r = doc2d.ksArcByPoint(
-                    float(x1), float(y1), float(x2), float(y2),
-                    float(x3), float(y3), int(style),
-                )
-            elif hasattr(doc2d, "ksArc"):
-                r = doc2d.ksArc(
-                    float(x1), float(y1), float(x2), float(y2),
-                    float(x3), float(y3), int(style),
-                )
-            else:
-                self.line(x1, y1, x2, y2, style=style)
-                self.line(x2, y2, x3, y3, style=style)
-                self._auto_end(was)
-                return self
-            if r == 0:
-                raise KompasOperationError("ksArc вернул 0")
-        except KompasOperationError:
-            self._auto_end(was)
-            raise
+            self._ks_arc_3pt(x1, y1, x2, y2, x3, y3, style)
         except Exception as e:
             self._auto_end(was)
             raise KompasOperationError(f"arc: {e}") from e
@@ -160,9 +167,8 @@ class Sketch:
     def rectangle(
         self, x: float, y: float, width: float, height: float, style: int = 1
     ) -> "Sketch":
-        """Прямоугольник от левого нижнего угла. Example: sk.rectangle(0, 0, 100, 60)"""
         if width == 0 or height == 0:
-            raise KompasOperationError("rectangle: width и height не должны быть 0")
+            raise KompasOperationError("rectangle: width/height ≠ 0")
         pts = [
             (x, y),
             (x + width, y),
@@ -179,33 +185,89 @@ class Sketch:
         height: float,
         radius: float,
         style: int = 1,
-        segments: int = 6,
     ) -> "Sketch":
         """
-        Скруглённый прямоугольник (аппроксимация полигоном).
+        Скруглённый прямоугольник: прямые + четверти окружности (ksArc).
+
+        x,y — левый нижний угол; width/height > 0; radius ограничен половиной меньшей стороны.
 
         Example:
-            sk.rounded_rect(0, 0, 80, 50, radius=5)
+            sk.rounded_rect(-58, -40, 116, 80, radius=40)  # stadium 116×80
         """
         if width <= 0 or height <= 0:
-            raise KompasOperationError("rounded_rect: width/height > 0")
-        r = min(float(radius), abs(width) / 2, abs(height) / 2)
-        if r <= 0:
+            raise KompasOperationError("rounded_rect: width и height > 0")
+        r = float(radius)
+        r = min(r, abs(width) / 2.0, abs(height) / 2.0)
+        if r <= 1e-9:
             return self.rectangle(x, y, width, height, style=style)
 
-        pts: List[Tuple[float, float]] = []
-        # corners: BL, BR, TR, TL — quarter circles
-        corners = [
-            (x + r, y + r, math.pi, 1.5 * math.pi),  # BL
-            (x + width - r, y + r, 1.5 * math.pi, 2 * math.pi),  # BR
-            (x + width - r, y + height - r, 0, 0.5 * math.pi),  # TR
-            (x + r, y + height - r, 0.5 * math.pi, math.pi),  # TL
-        ]
-        for cx, cy, a0, a1 in corners:
-            for i in range(segments + 1):
-                t = a0 + (a1 - a0) * i / segments
-                pts.append((cx + r * math.cos(t), cy + r * math.sin(t)))
-        return self.polygon(pts, closed=True, style=style)
+        # stadium: радиус = половина меньшей стороны → два полукруга + две прямые
+        was = self._editing
+        self._ensure()
+        try:
+            x1, y1 = float(x), float(y)
+            x2, y2 = x1 + float(width), y1 + float(height)
+
+            # Нижняя прямая
+            self._ks_line(x1 + r, y1, x2 - r, y1, style)
+            # Нижний правый угол: центр (x2-r, y1+r), от юга к востоку
+            self._ks_arc_3pt(
+                x2 - r, y1,
+                x2 - r + r * math.cos(math.radians(-45)), y1 + r + r * math.sin(math.radians(-45)),
+                x2, y1 + r,
+                style,
+            )
+            # Правая прямая
+            self._ks_line(x2, y1 + r, x2, y2 - r, style)
+            # Верхний правый: центр (x2-r, y2-r)
+            self._ks_arc_3pt(
+                x2, y2 - r,
+                x2 - r + r * math.cos(math.radians(45)), y2 - r + r * math.sin(math.radians(45)),
+                x2 - r, y2,
+                style,
+            )
+            # Верхняя прямая
+            self._ks_line(x2 - r, y2, x1 + r, y2, style)
+            # Верхний левый: центр (x1+r, y2-r)
+            self._ks_arc_3pt(
+                x1 + r, y2,
+                x1 + r + r * math.cos(math.radians(135)), y2 - r + r * math.sin(math.radians(135)),
+                x1, y2 - r,
+                style,
+            )
+            # Левая прямая
+            self._ks_line(x1, y2 - r, x1, y1 + r, style)
+            # Нижний левый: центр (x1+r, y1+r)
+            self._ks_arc_3pt(
+                x1, y1 + r,
+                x1 + r + r * math.cos(math.radians(-135)), y1 + r + r * math.sin(math.radians(-135)),
+                x1 + r, y1,
+                style,
+            )
+        except KompasOperationError:
+            self._auto_end(was)
+            raise
+        except Exception as e:
+            self._auto_end(was)
+            raise KompasOperationError(f"rounded_rect: {e}") from e
+        self._auto_end(was)
+        return self
+
+    def stadium(
+        self,
+        x: float,
+        y: float,
+        length: float,
+        width: float,
+        style: int = 1,
+    ) -> "Sketch":
+        """
+        Овал/«стадион»: length вдоль X, width вдоль Y, торцы — полуокружности R=width/2.
+
+        Example:
+            sk.stadium(-58, -40, 116, 80)  # то же что rounded_rect(..., radius=40)
+        """
+        return self.rounded_rect(x, y, length, width, radius=width / 2.0, style=style)
 
     def ellipse(
         self,
@@ -216,12 +278,6 @@ class Sketch:
         style: int = 1,
         segments: int = 48,
     ) -> "Sketch":
-        """
-        Эллипс (полигон-аппроксимация — совместимо без ksEllipse).
-
-        Example:
-            sk.ellipse(0, 0, 40, 25)
-        """
         if rx <= 0 or ry <= 0:
             raise KompasOperationError("ellipse: rx и ry > 0")
         pts = [
@@ -249,12 +305,7 @@ class Sketch:
             for i in range(count):
                 x1, y1 = points[i]
                 x2, y2 = points[(i + 1) % n]
-                doc2d = self._doc2d
-                r = doc2d.ksLineSeg(
-                    float(x1), float(y1), float(x2), float(y2), int(style)
-                )
-                if r == 0:
-                    raise KompasOperationError("ksLineSeg вернул 0 в polygon")
+                self._ks_line(x1, y1, x2, y2, style)
         except Exception as e:
             self._auto_end(was)
             raise KompasOperationError(f"polygon: {e}") from e
@@ -267,14 +318,8 @@ class Sketch:
         closed: bool = False,
         style: int = 1,
     ) -> "Sketch":
-        """
-        Сплайн по опорным точкам — ломаная (надёжный fallback без ksBezier).
-
-        Example:
-            sk.spline([(0,0), (10,5), (20,0), (30,8)], closed=False)
-        """
         if len(points) < 2:
-            raise KompasOperationError("spline: нужно >= 2 точек")
+            raise KompasOperationError("spline: >= 2 точек")
         return self.polygon(list(points), closed=closed, style=style)
 
     def slot(
@@ -286,7 +331,7 @@ class Sketch:
         width: float,
         style: int = 1,
     ) -> "Sketch":
-        """Прямой паз (олимпийский) ось (x1,y1)-(x2,y2), ширина width."""
+        """Прямой паз: две прямые + два полукруга (дуги)."""
         dx, dy = float(x2) - float(x1), float(y2) - float(y1)
         length = math.hypot(dx, dy)
         if length < 1e-9:
@@ -296,28 +341,33 @@ class Sketch:
         ux, uy = dx / length, dy / length
         px, py = -uy, ux
         hw = float(width) / 2.0
-        n_cap = 8
-        pts: List[Tuple[float, float]] = []
-        pts.append((x1 + px * hw, y1 + py * hw))
-        pts.append((x2 + px * hw, y2 + py * hw))
-        for i in range(1, n_cap):
-            ang = -math.pi / 2 + math.pi * i / n_cap
-            ca, sa = math.cos(ang), math.sin(ang)
-            pts.append(
-                (
-                    x2 + ux * (sa * hw) + px * (ca * hw),
-                    y2 + uy * (sa * hw) + py * (ca * hw),
-                )
-            )
-        pts.append((x2 - px * hw, y2 - py * hw))
-        pts.append((x1 - px * hw, y1 - py * hw))
-        for i in range(1, n_cap):
-            ang = math.pi / 2 + math.pi * i / n_cap
-            ca, sa = math.cos(ang), math.sin(ang)
-            pts.append(
-                (
-                    x1 + ux * (sa * hw) + px * (ca * hw),
-                    y1 + uy * (sa * hw) + py * (ca * hw),
-                )
-            )
-        return self.polygon(pts, closed=True, style=style)
+
+        was = self._editing
+        self._ensure()
+        try:
+            # точки
+            a1 = (x1 + px * hw, y1 + py * hw)
+            a2 = (x2 + px * hw, y2 + py * hw)
+            b2 = (x2 - px * hw, y2 - py * hw)
+            b1 = (x1 - px * hw, y1 - py * hw)
+            # прямые
+            self._ks_line(a1[0], a1[1], a2[0], a2[1], style)
+            # полукруг у конца 2
+            mid2 = (x2 + ux * hw, y2 + uy * hw)  # наружу вдоль оси — лучше перпендикуляр
+            mid2 = (x2 + px * 0.0 + ux * 0, y2)  # midpoint of semicircle in +perp direction from center end
+            mid2 = (x2 + px * hw * 0 + (x2 + ux * 0), y2)
+            # середина дуги на продолжении перпендикуляра через конец
+            mid2 = (x2 + px * hw, y2 + py * hw)  # same as a2 — wrong
+            mid2 = (x2 + ux * 0 + px * 0, y2) 
+            # correct mid of semicircle from a2 to b2 going through (x2+ux*hw? no)
+            # from a2 to b2 around center (x2,y2), mid at (x2+ux*hw, y2+uy*hw) if going outward along axis
+            mid2 = (x2 + ux * hw, y2 + uy * hw)
+            self._ks_arc_3pt(a2[0], a2[1], mid2[0], mid2[1], b2[0], b2[1], style)
+            self._ks_line(b2[0], b2[1], b1[0], b1[1], style)
+            mid1 = (x1 - ux * hw, y1 - uy * hw)
+            self._ks_arc_3pt(b1[0], b1[1], mid1[0], mid1[1], a1[0], a1[1], style)
+        except Exception as e:
+            self._auto_end(was)
+            raise KompasOperationError(f"slot: {e}") from e
+        self._auto_end(was)
+        return self
