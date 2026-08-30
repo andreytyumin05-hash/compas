@@ -1,25 +1,20 @@
-# Лимиты и каскад LLM
+# Ошибка rounded_rect — исправлено
 
-Типовые детали (крышка/втулка) идут **без API** (шаблон).
-Сложные — каскад, чтобы не упираться в один 429:
-
-1. **Gemini** (тот же `GEMINI_API_KEY`, что vision)
-2. **Groq light** (`gpt-oss-20b` / instant)
-3. **Groq strong** (`gpt-oss-120b` / qwen)
-4. **OpenRouter free** (если ключ есть)
-
-```env
-LLM_PROVIDER=cascade
-GEMINI_API_KEY=AIza...
-GROQ_API_KEY=gsk_...
-TELEGRAM_BOT_TOKEN=...
-VISION_MODEL=gemini-3.6-flash
 ```
+Параметр является обязательным
+```
+
+В КОМПАС у `ksArcByPoint` нужен **direction** (1 / -1), без него COM падает.  
+Теперь дуги через `ksArcByAngle` + fallback с direction.
 
 ```powershell
 git pull origin agent-v2-vision
-python -m agent.list_models
-# Ctrl+C → python -m bot
+
+# КОМПАС открыт:
+python -m core.smoke_rounded
+
+# или
+python -m agent.build "Крышка length=116 width=80 thickness=13 outer_radius=40 boss_height=18 inner_radius=30"
 ```
 
-Если Groq 429 — cascade уйдёт на Gemini сам. Подожди минуту при полном исчерпании.
+Ждём `OK` / `Готово`. Потом `python -m bot` и фото снова.
