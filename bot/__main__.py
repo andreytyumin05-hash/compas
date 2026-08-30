@@ -31,6 +31,15 @@ _GREETING = re.compile(
 )
 
 
+def build_vision_failure_message() -> str:
+    return (
+        "Не удалось разобрать чертёж по фото. "
+        "Пришлите размеры и форму детали текстом, например: "
+        "Втулка наружный 40 внутренний 20 длина 50. "
+        "Если нужно — можно загрузить ещё одно фото, но текст с размерами остаётся самым надёжным вариантом."
+    )
+
+
 def _looks_like_part_task(text: str) -> bool:
     t = text.strip()
     if len(t) < 6 or _GREETING.match(t):
@@ -117,9 +126,7 @@ def main() -> None:
                 spec = await asyncio.to_thread(_vision)
             except Exception as e:
                 log.exception("vision")
-                await update.message.reply_text(
-                    "Не удалось разобрать чертёж. Пришлите размеры текстом."
-                )
+                await update.message.reply_text(build_vision_failure_message())
                 return
             _pending_specs[uid] = spec
 

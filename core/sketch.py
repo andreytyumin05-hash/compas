@@ -312,13 +312,42 @@ class Sketch:
         self._auto_end(was)
         return self
 
+    def polyline(
+        self,
+        points: Sequence[Tuple[float, float]],
+        *,
+        close: bool = False,
+        style: int = 1,
+    ) -> "Sketch":
+        if len(points) < 2:
+            raise KompasOperationError("polyline: >= 2 точки")
+        return self.polygon(list(points), closed=close, style=style)
+
+    def arc_by_points(
+        self,
+        p1: Tuple[float, float],
+        p2: Tuple[float, float],
+        p3: Tuple[float, float],
+        style: int = 1,
+    ) -> "Sketch":
+        return self.arc(p1[0], p1[1], p2[0], p2[1], p3[0], p3[1], style=style)
+
     def spline(
         self,
         points: Sequence[Tuple[float, float]],
         closed: bool = False,
         style: int = 1,
     ) -> "Sketch":
-        return self.polygon(list(points), closed=closed, style=style)
+        return self.polyline(list(points), close=closed, style=style)
+
+    def bezier(
+        self,
+        points: Sequence[Tuple[float, float]],
+        *,
+        closed: bool = False,
+        style: int = 1,
+    ) -> "Sketch":
+        return self.spline(points, closed=closed, style=style)
 
     def slot(
         self,

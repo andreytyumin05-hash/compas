@@ -159,14 +159,14 @@ def analyze_drawing(
         raise FileNotFoundError(str(path))
     data = path.read_bytes()
     mime = _guess_mime(path)
-    order = (provider or os.getenv("VISION_PROVIDER", "gemini")).lower().strip()
+    order = (provider or os.getenv("VISION_PROVIDER", "auto")).lower().strip() or "auto"
 
-    errors = []
+    errors: List[str] = []
     if order in ("auto", "gemini"):
         try:
             return _analyze_gemini(data, mime)
         except Exception as e:
-            errors.append(str(e))
+            errors.append(f"gemini: {e}")
             if order == "gemini":
                 raise RuntimeError(f"Vision Gemini не удался. {e}") from e
     if order in ("auto", "openrouter"):

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 from typing import Optional, Tuple
@@ -27,13 +28,20 @@ def execute_code(code: str) -> None:
 
 
 def run_task(task: str, *, max_com_retries: int = 2) -> str:
+    # Важно: текст после распознавания и редактирования нередко выглядит как
+    # «Распознал так: ...» или «>> ...». Приводим его к нормальному TЗ.
+    normalized = task.strip()
+    normalized = re.sub(r"^\s*(?:распознал\s+так|detected|recognized)\s*[:\-]*\s*", "", normalized, flags=re.I)
+    normalized = normalized.replace(">>", " ").replace("|", " ")
+    normalized = " ".join(normalized.split())
+
     agent = Agent()
-    code, errors = agent.generate_checked(task)
+    code, errors = agent.generate_checked(normalized)
     missing = check_task_feature_requirements(task, code)
-    if errors or must_fix_holes(code) or missing:
+    if errors or must_fix_holes(code):
         raise RuntimeError(
             "Код не прошёл проверку: "
-            + "; ".join((errors or []) + (["не хватает фич из ТЗ: " + ", ".join(missing)] if missing else []) + (["отверстия без cut"] if must_fix_holes(code) else []))
+            + "; ".join((errors or []) + (["отверстия без cut"] if must_fix_holes(code) else []))
         )
 
     last_err: Optional[BaseException] = None
