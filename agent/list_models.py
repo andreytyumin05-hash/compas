@@ -1,50 +1,49 @@
-"""Список моделей Groq для текущего ключа."""
+"""Показать ключи и каскад."""
 
 from __future__ import annotations
 
-from .llm import list_groq_models, get_llm_client
 import os
 from pathlib import Path
+
 from dotenv import load_dotenv
+
+from .llm import list_groq_models, _build_cascade, _GROQ_LIGHT, _GROQ_STRONG
 
 _ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(_ROOT / ".env")
 
-# предпочтительные для генерации кода (не TTS / guard)
-_PREFERRED = (
-    "openai/gpt-oss-120b",
-    "openai/gpt-oss-20b",
-    "qwen/qwen3.8-27b",
-    "llama-3.3-70b-versatile",
-    "llama-3.1-8b-instant",
-)
-
 
 def main() -> None:
-    key = os.getenv("GROQ_API_KEY", "").strip()
-    if not key:
-        print("GROQ_API_KEY не задан в .env")
-        return
-    ids = list_groq_models(key)
-    print(f"Доступно моделей: {len(ids)}\n")
-    for m in ids:
-        print(f"  {m}")
+    print("=== Ключи ===")
+    for k in ("GEMINI_API_KEY", "GROQ_API_KEY", "OPENROUTER_API_KEY"):
+        v = os.getenv(k, "")
+        print(f"  {k}: {'задан' if v.strip() else 'нет'}")
 
-    pick = None
-    for p in _PREFERRED:
-        if p in ids:
-            pick = p
-            break
-    if pick is None and ids:
+    print("\n=== Рекомендуемый .env ===")
+    print("  LLM_PROVIDER=cascade")
+    print("  GEMINI_API_KEY=...   # код + vision, отдельная квота")
+    print("  GROQ_API_KEY=...     # запас")
+    print("  # OPENROUTER_API_KEY=...  # опционально free")
+
+    gkey = os.getenv("GROQ_API_KEY", "").strip()
+    if gkey:
+        ids = list_groq_models(gkey)
+        print(f"\n=== Groq models ({len(ids)}) ===")
         for m in ids:
-            if "guard" not in m and "orpheus" not in m and "whisper" not in m:
-                pick = m
-                break
-        pick = pick or ids[0]
+            tag = ""
+            if m in _GROQ_LIGHT:
+                tag = " [light]"
+            elif m in _GROQ_STRONG:
+                tag = " [strong]"
+            print(f"  {m}{tag}")
 
-    print("\nДля кода в .env лучше:")
-    print(f"  LLM_MODEL={pick}")
-    print("Не ставь allam / orpheus / prompt-guard — они не для CAD-кода.")
+    try:
+        c = _build_cascade()
+        print("\n=== Cascade order ===")
+        for b in c.backends:
+            print(f"  → {b.name}")
+    except Exception as e:
+        print(f"\nCascade: {e}")
 
 
 if __name__ == "__main__":

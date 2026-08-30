@@ -1,59 +1,79 @@
-"""Очередь задач: один КОМПАС — строго по одной задаче."""
+"""Очередь задач на один инстанс КОМПАС."""
 
 from __future__ import annotations
 
 import asyncio
-import itertools
+import logging
 from dataclasses import dataclass, field
-from typing import Any, Awaitable, Callable, Dict, Optional
+from typing import Any, Awaitable, Callable, Optional
+
+log = logging.getLogger("compas.bot")
 
 
 @dataclass
 class Job:
     user_id: int
     description: str
-    future: asyncio.Future
+    future: asyncio.Future = field(default_factory=lambda: asyncio.get_event_loop().create_future())
     position: int = 0
 
 
 class BuildQueue:
     def __init__(self) -> None:
-        self._queue: asyncio.Queue[Job] = asyncio.Queue()
-        self._counter = itertools.count(1)
-        self._pending = 0
-        self._worker_started = False
-
-    def size(self) -> int:
-        return self._queue.qsize() + (1 if self._pending else 0)
+        self._q: Optional[asyncio.Queue] = None
+        self._task: Optional[asyncio.Task] = None
+        self._seq = 0
+        self._stop = False
 
     async def start(self, worker: Callable[[Job], Awaitable[None]]) -> None:
-        if self._worker_started:
-            return
-        self._worker_started = True
+        self._q = asyncio.Queue()
+        self._stop = False
 
         async def _loop() -> None:
-            while True:
-                job = await self._queue.get()
-                self._pending = 1
+            assert self._q is not None
+            while not self._stop:
+                try:
+                    job: Job = await asyncio.wait_for(self._q.get(), timeout=1.0)
+                except asyncio.TimeoutError:
+                    continue
+                except Exception:
+                    if self._stop:
+                        break
+                    continue
                 try:
                     await worker(job)
                 except Exception as e:
+                    log.exception("job failed: %s", e)
                     if not job.future.done():
                         job.future.set_exception(e)
                 finally:
-                    self._pending = 0
-                    self._queue.task_done()
+                    self._q.task_done()
 
-        asyncio.create_task(_loop())
+        self._task = asyncio.create_task(_loop())
+
+    async def stop(self) -> None:
+        self._stop = True
+        if self._task:
+            self._task.cancel()
+            try:
+                await self._task
+            except asyncio.CancelledError:
+                pass
+            self._task = None
 
     async def submit(self, user_id: int, description: str) -> Job:
+        if self._q is None:
+            raise RuntimeError("очередь не запущена")
+        self._seq += 1
         loop = asyncio.get_running_loop()
-        fut: asyncio.Future = loop.create_future()
-        job = Job(user_id=user_id, description=description, future=fut)
-        job.position = self._queue.qsize() + 1
-        await self._queue.put(job)
+        job = Job(
+            user_id=user_id,
+            description=description,
+            future=loop.create_future(),
+            position=self._q.qsize() + 1,
+        )
+        await self._q.put(job)
         return job
 
 
-# singleton
 build_queue = BuildQueue()

@@ -1,23 +1,25 @@
-# Важно: бот на телефоне — ОК, КОМПАС на ПК
+# Лимиты и каскад LLM
 
-`python -m bot` крутится **на том же Windows**, где открыт КОМПАС.  
-Телефон только шлёт сообщения в Telegram — это нормально.
+Типовые детали (крышка/втулка) идут **без API** (шаблон).
+Сложные — каскад, чтобы не упираться в один 429:
 
-## Почему «английская проза»
+1. **Gemini** (тот же `GEMINI_API_KEY`, что vision)
+2. **Groq light** (`gpt-oss-20b` / instant)
+3. **Groq strong** (`gpt-oss-120b` / qwen)
+4. **OpenRouter free** (если ключ есть)
 
-Модель Groq (особенно после 429 Too Many Requests) отвечала текстом, не кодом.  
-Теперь для **крышки/stadium/втулки** код берётся из **шаблона без LLM** — стабильнее.
+```env
+LLM_PROVIDER=cascade
+GEMINI_API_KEY=AIza...
+GROQ_API_KEY=gsk_...
+TELEGRAM_BOT_TOKEN=...
+VISION_MODEL=gemini-3.6-flash
+```
 
 ```powershell
 git pull origin agent-v2-vision
-# Ctrl+C бот → снова:
-python -m bot
+python -m agent.list_models
+# Ctrl+C → python -m bot
 ```
 
-Проверка без TG:
-```powershell
-python -m agent.runner "Крышка length=116 width=80 thickness=13 outer_radius=40 boss_height=18 inner_radius=30"
-python -m agent.build "Втулка наружный 40 внутренний 20 длина 50"
-```
-
-Если Groq 429 — подожди 1–2 мин или опирайся на шаблоны (типовые детали).
+Если Groq 429 — cascade уйдёт на Gemini сам. Подожди минуту при полном исчерпании.
