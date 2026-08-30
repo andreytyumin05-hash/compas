@@ -1,7 +1,6 @@
 """
 Распознавание чертежа (фото) → JSON.
-
-Gemini для картинок; LLM_MODEL (groq/qwen/...) НЕ подставлять в Gemini.
+Gemini: не подставлять LLM_MODEL (groq/qwen).
 """
 
 from __future__ import annotations
@@ -11,7 +10,7 @@ import json
 import os
 import re
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from dotenv import load_dotenv
 
@@ -20,7 +19,15 @@ from .schema import FEATURE_SCHEMA_TEXT
 _ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(_ROOT / ".env")
 
-_DEFAULT_GEMINI = "gemini-2.0-flash"
+# Актуальные имена (2026): 2.0-flash снят → 3.6-flash
+_DEFAULT_GEMINI = "gemini-3.6-flash"
+_GEMINI_FALLBACKS = (
+    "gemini-3.6-flash",
+    "gemini-3.0-flash",
+    "gemini-2.5-flash",
+    "gemini-flash-latest",
+    "gemini-pro-latest",
+)
 _DEFAULT_OPENROUTER_VISION = "openai/gpt-4o-mini"
 
 _VISION_PROMPT = f"""Ты инженер-конструктор. По изображению чертежа извлеки геометрию.
@@ -29,9 +36,9 @@ _VISION_PROMPT = f"""Ты инженер-конструктор. По изобр
 {FEATURE_SCHEMA_TEXT}
 
 Правила:
-- единицы по умолчанию mm
-- диаметры — числа; в hole params используй diameter
-- нечитаемое — в unknown_dimensions, НЕ выдумывай
+- единицы mm
+- в hole params — diameter (не радиус)
+- нечитаемое → unknown_dimensions
 - confidence 0..1
 """
 
@@ -50,22 +57,15 @@ def _extract_json(text: str) -> Dict[str, Any]:
         raise ValueError(f"Не JSON из vision:\n{text[:500]}")
 
 
-def _gemini_model_name() -> str:
-    """Только VISION_MODEL, если похож на gemini; иначе default. Не брать LLM_MODEL."""
+def _gemini_candidates() -> List[str]:
     vm = (os.getenv("VISION_MODEL") or "").strip()
+    ordered: List[str] = []
     if vm and "gemini" in vm.lower():
-        return vm
-    # LLM_MODEL=qwen/... ломает Gemini — игнорируем
-    return _DEFAULT_GEMINI
-
-
-def _openrouter_model_name() -> str:
-    vm = (os.getenv("VISION_MODEL") or "").strip()
-    if vm and "gemini" not in vm.lower() and not vm.startswith("llama") and "qwen" not in vm.lower():
-        # явная vision-модель openrouter
-        if "/" in vm or vm.startswith("openai"):
-            return vm
-    return _DEFAULT_OPENROUTER_VISION
+        ordered.append(vm)
+    for m in _GEMINI_FALLBACKS:
+        if m not in ordered:
+            ordered.append(m)
+    return ordered
 
 
 def _analyze_gemini(image_bytes: bytes, mime: str) -> Dict[str, Any]:
@@ -75,17 +75,40 @@ def _analyze_gemini(image_bytes: bytes, mime: str) -> Dict[str, Any]:
     if not key:
         raise RuntimeError("GEMINI_API_KEY пуст")
     genai.configure(api_key=key)
-    model_name = _gemini_model_name()
-    model = genai.GenerativeModel(model_name)
-    resp = model.generate_content(
-        [
-            _VISION_PROMPT,
-            {"mime_type": mime, "data": image_bytes},
-        ],
-        generation_config={"temperature": 0.1},
+
+    last_err: Optional[Exception] = None
+    for model_name in _gemini_candidates():
+        try:
+            model = genai.GenerativeModel(model_name)
+            resp = model.generate_content(
+                [
+                    _VISION_PROMPT,
+                    {"mime_type": mime, "data": image_bytes},
+                ],
+                generation_config={"temperature": 0.1},
+            )
+            text = getattr(resp, "text", None) or ""
+            return _extract_json(text)
+        except Exception as e:
+            last_err = e
+            msg = str(e).lower()
+            # пробуем следующую модель при 404 / not available
+            if "404" in msg or "no longer available" in msg or "not found" in msg:
+                continue
+            raise RuntimeError(f"Gemini [{model_name}]: {e}") from e
+
+    raise RuntimeError(
+        f"Gemini: ни одна модель не ответила. Последняя ошибка: {last_err}. "
+        f"Пробовали: {', '.join(_gemini_candidates())}"
     )
-    text = getattr(resp, "text", None) or ""
-    return _extract_json(text)
+
+
+def _openrouter_model_name() -> str:
+    vm = (os.getenv("VISION_MODEL") or "").strip()
+    if vm and "gemini" not in vm.lower() and "qwen" not in vm.lower():
+        if "/" in vm or vm.startswith("openai"):
+            return vm
+    return _DEFAULT_OPENROUTER_VISION
 
 
 def _analyze_openrouter(image_bytes: bytes, mime: str) -> Dict[str, Any]:
@@ -139,17 +162,13 @@ def analyze_drawing(
     order = (provider or os.getenv("VISION_PROVIDER", "gemini")).lower().strip()
 
     errors = []
-    # по умолчанию только gemini (OPENROUTER не обязателен)
     if order in ("auto", "gemini"):
         try:
             return _analyze_gemini(data, mime)
         except Exception as e:
-            errors.append(f"gemini[{_gemini_model_name()}]: {e}")
+            errors.append(str(e))
             if order == "gemini":
-                raise RuntimeError(
-                    "Vision Gemini не удался. Проверь GEMINI_API_KEY и сеть. "
-                    f"Модель: {_gemini_model_name()}. {e}"
-                ) from e
+                raise RuntimeError(f"Vision Gemini не удался. {e}") from e
     if order in ("auto", "openrouter"):
         try:
             return _analyze_openrouter(data, mime)
@@ -157,8 +176,4 @@ def analyze_drawing(
             errors.append(f"openrouter: {e}")
             if order == "openrouter":
                 raise
-    raise RuntimeError(
-        "Vision не удался. "
-        + "; ".join(errors)
-        + "\nВ .env: GEMINI_API_KEY=... и не ставь VISION_MODEL=qwen/..."
-    )
+    raise RuntimeError("Vision не удался. " + "; ".join(errors))
