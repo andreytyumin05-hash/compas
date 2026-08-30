@@ -84,7 +84,7 @@ def try_template(task: str) -> Optional[str]:
             L, W = (max(a, b), min(a, b))
         thick = _f("thickness", t) or _f("толщин", t)
         R = _f("outer_radius", t) or _f("corner_radius", t) or _f("radius", t)
-        boss_h = _f("boss_height", t)
+        boss_h = _f("boss_height", t) or _f("boss_h", t)
         if boss_h is None:
             th = _f("total_height", t)
             if th and thick and th > thick:
@@ -93,7 +93,13 @@ def try_template(task: str) -> Optional[str]:
             _f("radius_outer", t)
             or _f("inner_radius", t)
             or _f("boss_radius", t)
+            or _f("boss_r", t)
         )
+        pocket_depth = _f("pocket_depth", t) or _f("pocket_h", t) or _f("depth_pocket", t)
+        pocket_d = _f("pocket_diameter", t) or _f("pocket_d", t) or _f("pocket_inner_diameter", t)
+        pocket_r = _f("pocket_radius", t)
+        if pocket_r is not None and pocket_d is None:
+            pocket_d = 2 * pocket_r
         # если «plate» без rounded — rectangle
         use_round = any(
             w in low for w in ("stadium", "rounded", "крышк", "бобыш", "oblong", "flange")
@@ -120,6 +126,12 @@ def try_template(task: str) -> Optional[str]:
                     'with part.sketch("xy") as sk2:',
                     f"    sk2.circle(0, 0, {boss_r})",
                     f"part.extrude(sk2, depth={boss_h})",
+                ]
+            if pocket_depth and pocket_d and pocket_depth > 0 and pocket_d > 0:
+                lines += [
+                    'with part.sketch("xy") as sk3:',
+                    f"    sk3.circle(0, 0, {pocket_d / 2.0})",
+                    f"part.cut(sk3, depth={pocket_depth}, through_all=False)",
                 ]
             # отверстия по PCD
             pcd = _f("pcd", t)
