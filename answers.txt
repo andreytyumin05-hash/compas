@@ -1,25 +1,20 @@
-(venv) PS D:\учеба\ML_study\compas> python -m core.smoke_edges
-smoke_edges — КОМПАС запущен, v23
+(venv) PS D:\учеба\ML_study\compas> python -m bot
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "D:\учеба\ML_study\compas\bot\__main__.py", line 206, in <module>
+    main()
+    ~~~~^^
+  File "D:\учеба\ML_study\compas\bot\__main__.py", line 54, in main
+    from bot.sessions import session_workspace
+  File "D:\учеба\ML_study\compas\bot\sessions.py", line 16
+    session_workspace(user_id: int) -> Iterator[Path]:
+    ^^^^^^^^^^^^^^^^^
+SyntaxError: invalid syntax
 
-=== TEST: cube ===
-  edges: 19 filter=all
-  edge[0] src=EntityCollection(7)
-  edge[1] src=EntityCollection(7)
-  edge[2] src=EntityCollection(7)
-  (для куба типично 12 рёбер, сейчас 19)
-OK: cube
-
-=== TEST: chamfer ===
-  edges: 19
-OK: chamfer
-
-=== TEST: bushing ===
-  edges after hole: 9
-  near_point top rim: 1
-OK: bushing
-
-=== TEST: plate ===
-  edges: 22
-OK: plate
-
-Passed 4/4
+$ python -m core.smoke_export
+smoke_export — КОМПАС открыт
+OK D:\учеба\ML_study\compas\.compas_tmp\smoke_export_aaf5017f4c3f\part.m3d size=47614
+OK D:\учеба\ML_study\compas\.compas_tmp\smoke_export_aaf5017f4c3f\part.step size=4504
+OK export+close
+(venv) 
