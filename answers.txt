@@ -1,125 +1,138 @@
 (venv) PS D:\учеба\ML_study\compas> python -m core.smoke_edges
-smoke_edges — КОМПАС должен быть запущен
+smoke_edges — КОМПАС запущен, v23
 
 === TEST: cube ===
-  edges collected: 20 filter=all
-  edge[0] src=EntityCollection(8) mid=None dir=None
-  edge[1] src=EntityCollection(8) mid=None dir=None
-  edge[2] src=EntityCollection(8) mid=None dir=None
-  edge[3] src=EntityCollection(8) mid=None dir=None
-  edge[4] src=EntityCollection(8) mid=None dir=None
-FAIL: cube: Не удалось привязать рёбра к операции фаски/скругления. COM-definition не принял AddArrayOfEdges/Edges.Add. Рёбер в наборе: 20. Детали: 
+  edges: 19 filter=all
+  edge[0] src=EntityCollection(7)
+  edge[1] src=EntityCollection(7)
+  edge[2] src=EntityCollection(7)
+  (для куба типично 12 рёбер, сейчас 19)
+FAIL: cube: GetDefinition invoke: (-2147352573, 'Член группы не найден.', None, None)
 Traceback (most recent call last):
-  File "D:\учеба\ML_study\compas\core\smoke_edges.py", line 26, in _run
+  File "D:\учеба\ML_study\compas\core\part_advanced.py", line 41, in _definition
+    return d()
+  File "D:\учеба\ML_study\compas\venv\Lib\site-packages\win32com\client\dynamic.py", line 214, in __call__    self._oleobj_.Invoke(*allArgs), self._olerepr_.defaultDispatchName, None
+    ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^
+pywintypes.com_error: (-2147352573, 'Член группы не найден.', None, None)
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "D:\учеба\ML_study\compas\core\smoke_edges.py", line 22, in _run
     fn()
     ~~^^
-  File "D:\учеба\ML_study\compas\core\smoke_edges.py", line 47, in test_cube_fillet_all
+  File "D:\учеба\ML_study\compas\core\smoke_edges.py", line 46, in test_cube_fillet_all
     part.fillet(edges, radius=2.0)
     ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^
   File "D:\учеба\ML_study\compas\core\part.py", line 254, in fillet
     return apply_fillet(self, edges, r)
-  File "D:\учеба\ML_study\compas\core\part_advanced.py", line 211, in apply_fillet
-    _attach_edges(definition, edges)
-    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^
-  File "D:\учеба\ML_study\compas\core\part_advanced.py", line 128, in _attach_edges
-    raise KompasOperationError(
-    ...<3 lines>...
-    )
-core.exceptions.KompasOperationError: Не удалось привязать рёбра к операции фаски/скругления. COM-definition не принял AddArrayOfEdges/Edges.Add. Рёбер в наборе: 20. Детали: 
+  File "D:\учеба\ML_study\compas\core\part_advanced.py", line 196, in apply_fillet
+    definition = _definition(entity)
+  File "D:\учеба\ML_study\compas\core\part_advanced.py", line 46, in _definition
+    raise KompasOperationError(f"GetDefinition invoke: {e}") from e
+core.exceptions.KompasOperationError: GetDefinition invoke: (-2147352573, 'Член группы не найден.', None, None)
 
 === TEST: chamfer ===
-  edges: 20
-FAIL: chamfer: Не задать размер фаски distance=1.5 (ни length1, ни SetChamferParam)
+  edges: 19
+FAIL: chamfer: GetDefinition invoke: (-2147352573, 'Член группы не найден.', None, None)
 Traceback (most recent call last):
-  File "D:\учеба\ML_study\compas\core\smoke_edges.py", line 26, in _run
+  File "D:\учеба\ML_study\compas\core\part_advanced.py", line 41, in _definition
+    return d()
+  File "D:\учеба\ML_study\compas\venv\Lib\site-packages\win32com\client\dynamic.py", line 214, in __call__    self._oleobj_.Invoke(*allArgs), self._olerepr_.defaultDispatchName, None
+    ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^
+pywintypes.com_error: (-2147352573, 'Член группы не найден.', None, None)
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "D:\учеба\ML_study\compas\core\smoke_edges.py", line 22, in _run
     fn()
     ~~^^
-  File "D:\учеба\ML_study\compas\core\smoke_edges.py", line 61, in test_cube_chamfer_all
+  File "D:\учеба\ML_study\compas\core\smoke_edges.py", line 59, in test_cube_chamfer_all
     part.chamfer(edges, distance=1.5)
     ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^
   File "D:\учеба\ML_study\compas\core\part.py", line 228, in chamfer
     return apply_chamfer(self, edges, d)
-  File "D:\учеба\ML_study\compas\core\part_advanced.py", line 181, in apply_chamfer
-    _set_chamfer_size(definition, distance)
-    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
-  File "D:\учеба\ML_study\compas\core\part_advanced.py", line 148, in _set_chamfer_size
-    raise KompasOperationError(
-        f"Не задать размер фаски distance={distance} (ни length1, ни SetChamferParam)"
-    )
-core.exceptions.KompasOperationError: Не задать размер фаски distance=1.5 (ни length1, ни SetChamferParam)
+  File "D:\учеба\ML_study\compas\core\part_advanced.py", line 227, in apply_chamfer
+    definition = _definition(entity)
+  File "D:\учеба\ML_study\compas\core\part_advanced.py", line 46, in _definition
+    raise KompasOperationError(f"GetDefinition invoke: {e}") from e
+core.exceptions.KompasOperationError: GetDefinition invoke: (-2147352573, 'Член группы не найден.', None, None)
+
 === TEST: bushing ===
-  edges after hole: 14
-  parallel_z unavailable (expected on some installs): filter parallel_z: ни одного ребра с известным направлением. (без direction: 14 из 14). На этой установке метаданные ребра могут быть недоступны — используйте 'all'.
-FAIL: bushing: Не задать размер фаски distance=0.5 (ни length1, ни SetChamferParam)
+  edges after hole: 9
+  near_point fallback all: First/Next после SelectByPoint: (-2147352573, 'Член группы не найден.', None, None)
+FAIL: bushing: GetDefinition invoke: (-2147352573, 'Член группы не найден.', None, None)
 Traceback (most recent call last):
-  File "D:\учеба\ML_study\compas\core\smoke_edges.py", line 78, in test_bushing_outer_edges
-    ez = part.get_edges("parallel_z")
+  File "D:\учеба\ML_study\compas\core\edges.py", line 244, in select_edges_near_point
+    it = first()
+  File "D:\учеба\ML_study\compas\venv\Lib\site-packages\win32com\client\dynamic.py", line 214, in __call__    self._oleobj_.Invoke(*allArgs), self._olerepr_.defaultDispatchName, None
+    ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^
+pywintypes.com_error: (-2147352573, 'Член группы не найден.', None, None)
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "D:\учеба\ML_study\compas\core\smoke_edges.py", line 75, in test_bushing
+    near = part.get_edges("near_point", point=(20.0, 0.0, 50.0))
   File "D:\учеба\ML_study\compas\core\part.py", line 199, in get_edges
     return _get_edges(self._part, filter, point=point, tol=tol)
-  File "D:\учеба\ML_study\compas\core\edges.py", line 429, in get_edges
-    return filter_edges(all_edges, filter, point=point, tol=tol)
-  File "D:\учеба\ML_study\compas\core\edges.py", line 372, in filter_edges
-    raise KompasOperationError(
-    ...<3 lines>...
-    )
-core.exceptions.KompasOperationError: filter parallel_z: ни одного ребра с известным направлением. (без direction: 14 из 14). На этой установке метаданные ребра могут быть недоступны — используйте 'all'.
+  File "D:\учеба\ML_study\compas\core\edges.py", line 319, in get_edges
+    return select_edges_near_point(part_com, point[0], point[1], point[2])
+  File "D:\учеба\ML_study\compas\core\edges.py", line 252, in select_edges_near_point
+    raise KompasOperationError(f"First/Next после SelectByPoint: {e}") from e
+core.exceptions.KompasOperationError: First/Next после SelectByPoint: (-2147352573, 'Член группы не найден.', None, None)
 
 During handling of the above exception, another exception occurred:
 
 Traceback (most recent call last):
-  File "D:\учеба\ML_study\compas\core\smoke_edges.py", line 26, in _run
+  File "D:\учеба\ML_study\compas\core\part_advanced.py", line 41, in _definition
+    return d()
+  File "D:\учеба\ML_study\compas\venv\Lib\site-packages\win32com\client\dynamic.py", line 214, in __call__    self._oleobj_.Invoke(*allArgs), self._olerepr_.defaultDispatchName, None
+    ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^
+pywintypes.com_error: (-2147352573, 'Член группы не найден.', None, None)
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "D:\учеба\ML_study\compas\core\smoke_edges.py", line 22, in _run
     fn()
     ~~^^
-  File "D:\учеба\ML_study\compas\core\smoke_edges.py", line 83, in test_bushing_outer_edges
+  File "D:\учеба\ML_study\compas\core\smoke_edges.py", line 80, in test_bushing
     part.chamfer(edges, distance=0.5)
     ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^
   File "D:\учеба\ML_study\compas\core\part.py", line 228, in chamfer
     return apply_chamfer(self, edges, d)
-  File "D:\учеба\ML_study\compas\core\part_advanced.py", line 181, in apply_chamfer
-    _set_chamfer_size(definition, distance)
-    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
-  File "D:\учеба\ML_study\compas\core\part_advanced.py", line 148, in _set_chamfer_size
-    raise KompasOperationError(
-        f"Не задать размер фаски distance={distance} (ни length1, ни SetChamferParam)"
-    )
-core.exceptions.KompasOperationError: Не задать размер фаски distance=0.5 (ни length1, ни SetChamferParam)
+  File "D:\учеба\ML_study\compas\core\part_advanced.py", line 227, in apply_chamfer
+    definition = _definition(entity)
+  File "D:\учеба\ML_study\compas\core\part_advanced.py", line 46, in _definition
+    raise KompasOperationError(f"GetDefinition invoke: {e}") from e
+core.exceptions.KompasOperationError: GetDefinition invoke: (-2147352573, 'Член группы не найден.', None, None)
+
 === TEST: plate ===
-  edges: 25
-  top_z fallback to all: top_z: нет рёбер с midpoint — COM не отдал координаты. Используйте 'all'.
-FAIL: plate: Не удалось привязать рёбра к операции фаски/скругления. COM-definition не принял AddArrayOfEdges/Edges.Add. Рёбер в наборе: 25. Детали: 
+  edges: 22
+FAIL: plate: GetDefinition invoke: (-2147352573, 'Член группы не найден.', None, None)
 Traceback (most recent call last):
-  File "D:\учеба\ML_study\compas\core\smoke_edges.py", line 99, in test_plate_fillet
-    top = part.get_edges("top_z", tol=0.5)
-  File "D:\учеба\ML_study\compas\core\part.py", line 199, in get_edges
-    return _get_edges(self._part, filter, point=point, tol=tol)
-  File "D:\учеба\ML_study\compas\core\edges.py", line 429, in get_edges
-    return filter_edges(all_edges, filter, point=point, tol=tol)
-  File "D:\учеба\ML_study\compas\core\edges.py", line 399, in filter_edges
-    raise KompasOperationError(
-        f"{pred}: нет рёбер с midpoint — COM не отдал координаты. Используйте 'all'."
-    )
-core.exceptions.KompasOperationError: top_z: нет рёбер с midpoint — COM не отдал координаты. Используйте 'all'.
+  File "D:\учеба\ML_study\compas\core\part_advanced.py", line 41, in _definition
+    return d()
+  File "D:\учеба\ML_study\compas\venv\Lib\site-packages\win32com\client\dynamic.py", line 214, in __call__    self._oleobj_.Invoke(*allArgs), self._olerepr_.defaultDispatchName, None
+    ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^
+pywintypes.com_error: (-2147352573, 'Член группы не найден.', None, None)
 
-During handling of the above exception, another exception occurred:
+The above exception was the direct cause of the following exception:
 
 Traceback (most recent call last):
-  File "D:\учеба\ML_study\compas\core\smoke_edges.py", line 26, in _run
+  File "D:\учеба\ML_study\compas\core\smoke_edges.py", line 22, in _run
     fn()
     ~~^^
-  File "D:\учеба\ML_study\compas\core\smoke_edges.py", line 104, in test_plate_fillet
+  File "D:\учеба\ML_study\compas\core\smoke_edges.py", line 94, in test_plate
     part.fillet(edges, radius=1.0)
     ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^
   File "D:\учеба\ML_study\compas\core\part.py", line 254, in fillet
     return apply_fillet(self, edges, r)
-  File "D:\учеба\ML_study\compas\core\part_advanced.py", line 211, in apply_fillet
-    _attach_edges(definition, edges)
-    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^
-  File "D:\учеба\ML_study\compas\core\part_advanced.py", line 128, in _attach_edges
-    raise KompasOperationError(
-    ...<3 lines>...
-    )
-core.exceptions.KompasOperationError: Не удалось привязать рёбра к операции фаски/скругления. COM-definition не принял AddArrayOfEdges/Edges.Add. Рёбер в наборе: 25. Детали: 
+  File "D:\учеба\ML_study\compas\core\part_advanced.py", line 196, in apply_fillet
+    definition = _definition(entity)
+    raise KompasOperationError(f"GetDefinition invoke: {e}") from e
+core.exceptions.KompasOperationError: GetDefinition invoke: (-2147352573, 'Член группы не найден.', None, None)
 
 Passed 0/4
-
-2
