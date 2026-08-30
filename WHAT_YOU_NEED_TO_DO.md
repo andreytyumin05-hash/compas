@@ -1,20 +1,25 @@
-# Vision 404 — модель устарела
+# «пустой код» — что это
 
-Сообщение API: `gemini-2.0-flash is no longer available` → использовать **`gemini-3.6-flash`**.
+Vision **ок** (крышка/flange распознана). Упало на **генерации Python** через Groq: модель вернула текст без блока ` ```python ` (или совсем пусто) → validate: «пустой код».
 
-В `.env` (у тебя уже почти так):
-
-```env
-VISION_PROVIDER=gemini
-VISION_MODEL=gemini-3.6-flash
-GEMINI_API_KEY=AIza...
-```
+## Исправлено в ветке
+- повторный запрос «только python-блок»
+- извлечение кода из сырого текста / think-тегов
+- чтение content у reasoning-моделей Groq
+- few-shot для stadium ≈ rounded_rect
 
 ```powershell
 git pull origin agent-v2-vision
-# перезапусти бота (Ctrl+C → python -m bot)
+# перезапуск бота
+python -m bot
 ```
 
-В коде: дефолт `gemini-3.6-flash` + fallback при 404.
+Локально без бота:
+```powershell
+python -m agent.runner "Крышка 116x80 толщина 13, rounded, бобышка R30 высота 18"
+```
 
-Снова фото в TG. Если снова ошибка — полный текст в answers.
+Если снова пусто — `python -m agent.list_models` и поставь в `.env` явную chat-модель, например:
+```env
+LLM_MODEL=llama-3.3-70b-versatile
+```

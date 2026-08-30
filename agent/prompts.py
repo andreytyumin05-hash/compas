@@ -28,34 +28,19 @@ part.revolve(sk, angle=360.0)
 part.hole(x, y, diameter=D, through_all=True)
 part.pattern_holes_circular((0,0), pcd=55, count=4, diameter=9)
 part.pattern_holes_rect(10, 10, 90, 50, diameter=9)
-
-# Фаска / скругление — только через get_edges
-edges = part.get_edges("all")  # или parallel_z, top_z, near_point
+edges = part.get_edges("all")
 part.fillet(edges, radius=1.0)
 part.chamfer(edges, distance=0.5)
-
 part.update()
 ```
 
-Не выдумывай loft/sweep/boolean — их нет в API.
+Нет loft/sweep/boolean. «Stadium»/овал ≈ rounded_rect или slot.
 '''
 
 _FEW_SHOT = '''
 ## Примеры
 
-### Куб со скруглением
-```python
-from core import Part
-part = Part.create("Куб")
-with part.sketch("xy") as sk:
-    sk.rectangle(-15, -15, 30, 30)
-part.extrude(sk, depth=30)
-edges = part.get_edges("all")
-part.fillet(edges, radius=2.0)
-part.update()
-```
-
-### Втулка Ø40/Ø20 L=50
+### Втулка
 ```python
 from core import Part
 part = Part.create("Втулка")
@@ -66,15 +51,16 @@ part.hole(0, 0, diameter=20, through_all=True)
 part.update()
 ```
 
-### Фланец
+### Крышка/плита stadium ≈ rounded_rect
 ```python
 from core import Part
-part = Part.create("Фланец")
+part = Part.create("Крышка")
 with part.sketch("xy") as sk:
-    sk.circle(0, 0, 40)
-part.extrude(sk, depth=10)
-part.hole(0, 0, diameter=20, through_all=True)
-part.pattern_holes_circular((0, 0), pcd=55, count=4, diameter=9)
+    sk.rounded_rect(-58, -40, 116, 80, radius=40)
+part.extrude(sk, depth=13)
+with part.sketch("xy") as sk2:
+    sk2.circle(0, 0, 30)
+part.extrude(sk2, depth=18)
 part.update()
 ```
 '''
@@ -82,8 +68,8 @@ part.update()
 _RULES = '''
 ## Правила
 1. mm; hole(diameter=...); circle radius=D/2.
-2. Фаска/скругление: сначала get_edges, потом fillet/chamfer.
-3. Нет loft/sweep/boolean в API.
+2. Ответ ОБЯЗАН содержать блок ```python с from core import Part.
+3. Не отвечай пустым текстом и не только планом без кода.
 4. Код с колонки 0.
 '''
 
@@ -97,7 +83,7 @@ def get_system_prompt() -> str:
         + _RULES
         + "\n## Паттерны\n\n"
         + patterns
-        + "\n\nФормат: план + один блок ```python```.\n"
+        + "\n\nФормат: кратко план, затем ОБЯЗАТЕЛЬНО ```python```.\n"
     )
 
 
@@ -106,7 +92,7 @@ SYSTEM_PROMPT = get_system_prompt()
 
 def build_user_prompt(task: str) -> str:
     return (
-        "Спроектируй деталь, код только core.\n\n"
+        "Спроектируй деталь. В конце ответа обязателен блок ```python.\n\n"
         f"Задача:\n{task.strip()}"
     )
 
@@ -114,9 +100,8 @@ def build_user_prompt(task: str) -> str:
 def build_repair_prompt(task: str, bad_code: str, errors: list) -> str:
     err = "\n".join(f"- {e}" for e in errors) or "- ошибка"
     return (
-        "Исправь код с учётом ошибок выполнения/валидации.\n"
+        "Исправь. Ответ — только ```python```.\n"
         f"Ошибки:\n{err}\n\n"
         f"Задача:\n{task.strip()}\n\n"
-        f"Плохой код:\n```python\n{bad_code}\n```\n\n"
-        "Только исправленный ```python```."
+        f"Плохой код:\n```python\n{bad_code}\n```\n"
     )

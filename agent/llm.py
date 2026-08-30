@@ -1,7 +1,5 @@
 """
-Клиенты LLM с поддержкой бесплатных лимитов.
-
-Провайдеры: groq | gemini | openrouter
+Клиенты LLM: groq | gemini | openrouter
 """
 
 from __future__ import annotations
@@ -9,7 +7,7 @@ from __future__ import annotations
 import os
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import List, Dict, Optional, Sequence
+from typing import List, Dict, Optional
 
 from dotenv import load_dotenv
 
@@ -21,12 +19,11 @@ if _ENV_PATH.exists():
 else:
     load_dotenv()
 
-# Кандидаты для Groq (в порядке предпочтения). Реальные id подтянем с API.
 _GROQ_FALLBACKS = (
-    "llama-3.1-8b-instant",
     "llama-3.3-70b-versatile",
-    "llama3-8b-8192",
+    "llama-3.1-8b-instant",
     "llama3-70b-8192",
+    "llama3-8b-8192",
     "gemma2-9b-it",
     "mixtral-8x7b-32768",
     "openai/gpt-oss-20b",
@@ -40,6 +37,27 @@ class BaseLLM(ABC):
         ...
 
 
+def _message_text(msg) -> str:
+    """Достать текст из message (content / reasoning у reasoning-моделей)."""
+    if msg is None:
+        return ""
+    parts = []
+    content = getattr(msg, "content", None)
+    if content:
+        parts.append(str(content))
+    # некоторые модели кладут ответ в reasoning / reasoning_content
+    for attr in ("reasoning", "reasoning_content", "refusal"):
+        val = getattr(msg, attr, None)
+        if val and isinstance(val, str) and val.strip():
+            # reasoning alone without content — всё равно пробуем извлечь код позже
+            if not content:
+                parts.append(val)
+    if not parts and isinstance(msg, dict):
+        if msg.get("content"):
+            parts.append(str(msg["content"]))
+    return "\n".join(parts).strip()
+
+
 class GroqLLM(BaseLLM):
     def __init__(self, api_key: str, model: str):
         from groq import Groq
@@ -49,26 +67,23 @@ class GroqLLM(BaseLLM):
         self.api_key = api_key
 
     def chat(self, messages: List[Dict[str, str]], temperature: float = 0.2) -> str:
-        from groq import BadRequestError, NotFoundError, APIStatusError
-
         try:
             resp = self.client.chat.completions.create(
                 model=self.model,
                 messages=messages,
                 temperature=temperature,
             )
-            return resp.choices[0].message.content or ""
+            choice = resp.choices[0]
+            text = _message_text(choice.message)
+            return text
         except Exception as e:
-            # Если модель недоступна — пробуем другие с аккаунта
             msg = str(e).lower()
             if "model" in msg and ("not found" in msg or "does not exist" in msg or "404" in msg):
                 available = list_groq_models(self.api_key)
                 raise RuntimeError(
-                    f"Модель '{self.model}' недоступна на твоём ключе Groq.\n\n"
-                    f"Доступные модели на аккаунте:\n"
-                    + ("\n".join(f"  - {m}" for m in available) if available else "  (список пуст / не удалось получить)")
-                    + "\n\nПропиши в .env одну из них, например:\n"
-                    f"  LLM_MODEL={available[0] if available else 'см. список выше'}"
+                    f"Модель '{self.model}' недоступна на ключе Groq.\n"
+                    + ("\n".join(f"  - {m}" for m in available) if available else "  (список пуст)")
+                    + f"\nПропиши LLM_MODEL={available[0] if available else '...'}"
                 ) from e
             raise
 
@@ -115,48 +130,34 @@ class OpenRouterLLM(BaseLLM):
             messages=messages,
             temperature=temperature,
         )
-        return resp.choices[0].message.content or ""
+        return _message_text(resp.choices[0].message)
 
 
 def list_groq_models(api_key: str) -> List[str]:
-    """Список id моделей, доступных этому ключу."""
     try:
         from groq import Groq
 
         client = Groq(api_key=api_key)
         models = client.models.list()
-        ids = sorted(
-            m.id
-            for m in models.data
-            if m.id and not m.id.startswith("whisper")
+        return sorted(
+            m.id for m in models.data if m.id and not m.id.startswith("whisper")
         )
-        return ids
     except Exception:
         return []
 
 
 def pick_groq_model(api_key: str, preferred: Optional[str] = None) -> str:
-    """
-    Выбрать рабочую модель:
-    1) preferred, если есть в списке API
-    2) первый из fallback, который есть в списке
-    3) первая модель из API
-    4) preferred как есть (пусть упадёт с понятной ошибкой)
-    """
     available = list_groq_models(api_key)
     if preferred and (not available or preferred in available):
         return preferred
-
     if available:
         for cand in _GROQ_FALLBACKS:
             if cand in available:
                 return cand
-        # любая chat-подобная
         for m in available:
             if "whisper" not in m.lower() and "guard" not in m.lower():
                 return m
         return available[0]
-
     return preferred or _GROQ_FALLBACKS[0]
 
 
@@ -167,14 +168,8 @@ def _missing_key_message(provider: str, env_var: str, url: str) -> str:
         else f"Файл .env НЕ найден: {_ENV_PATH}"
     )
     return (
-        f"{env_var} не задан.\n"
-        f"{env_hint}\n\n"
-        f"Сделайте так:\n"
-        f"  1) copy .env.example .env\n"
-        f"  2) В .env укажите:\n"
-        f"       LLM_PROVIDER={provider}\n"
-        f"       {env_var}=ваш_ключ\n"
-        f"  3) Ключ: {url}"
+        f"{env_var} не задан.\n{env_hint}\n"
+        f"  LLM_PROVIDER={provider}\n  {env_var}=ключ\n  {url}"
     )
 
 
@@ -192,8 +187,7 @@ def get_llm_client(
             raise ValueError(
                 _missing_key_message("groq", "GROQ_API_KEY", "https://console.groq.com")
             )
-        chosen = pick_groq_model(key, preferred=model)
-        return GroqLLM(key, chosen)
+        return GroqLLM(key, pick_groq_model(key, preferred=model))
 
     if provider == "gemini":
         key = api_key or os.getenv("GEMINI_API_KEY", "")
@@ -203,7 +197,7 @@ def get_llm_client(
                     "gemini", "GEMINI_API_KEY", "https://aistudio.google.com"
                 )
             )
-        return GeminiLLM(key, model or "gemini-2.0-flash")
+        return GeminiLLM(key, model or "gemini-3.6-flash")
 
     if provider == "openrouter":
         key = api_key or os.getenv("OPENROUTER_API_KEY", "")
@@ -217,7 +211,4 @@ def get_llm_client(
             key, model or "meta-llama/llama-3.3-70b-instruct:free"
         )
 
-    raise ValueError(
-        f"Неизвестный LLM_PROVIDER={provider!r}. "
-        f"Доступны: groq, gemini, openrouter"
-    )
+    raise ValueError(f"LLM_PROVIDER={provider!r}. Доступны: groq, gemini, openrouter")
