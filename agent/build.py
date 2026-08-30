@@ -1,7 +1,7 @@
 """
-Сгенерировать код и выполнить в КОМПАС-3D (с retry при ошибке COM).
+Сгенерировать код и выполнить в КОМПАС-3D (retry при ошибке COM).
 
-  python -m agent.build "Втулка наружный 40 внутренний 20 длина 50"
+  python -m agent.build "описание"
 """
 
 from __future__ import annotations
@@ -30,10 +30,7 @@ def execute_code(code: str) -> None:
 
 
 def run_task(task: str, *, max_com_retries: int = 3) -> str:
-    """
-    Задача → код → exec. При ошибке КОМПАС — до max_com_retries исправлений LLM.
-    Возвращает финальный код.
-    """
+    """Задача → один generate_checked → exec; при COM-ошибке — repair LLM."""
     agent = Agent()
     code, errors = agent.generate_checked(task)
     if errors or must_fix_holes(code):
@@ -53,7 +50,6 @@ def run_task(task: str, *, max_com_retries: int = 3) -> str:
             last_err = e
             if attempt + 1 >= max_com_retries:
                 break
-            # попросить LLM исправить с учётом runtime-ошибки
             repair = build_repair_prompt(task, code, [str(e)])
             raw = agent.llm.chat(
                 [
@@ -62,12 +58,12 @@ def run_task(task: str, *, max_com_retries: int = 3) -> str:
                 ],
                 temperature=0.1,
             )
-            code = normalize_code(agent._extract_code(raw))
-            ok, errs = validate_generated_code(code)
+            new_code = normalize_code(agent._extract_code(raw or ""))
+            ok, errs = validate_generated_code(new_code)
             if not ok:
-                raise RuntimeError(
-                    f"После ошибки COM код снова невалиден: {errs}; COM: {e}"
-                ) from e
+                # не затираем рабочую попытку мусором
+                continue
+            code = new_code
 
     raise RuntimeError(f"КОМПАС не построил за {max_com_retries} попыток: {last_err}")
 
@@ -75,16 +71,11 @@ def run_task(task: str, *, max_com_retries: int = 3) -> str:
 def run_task_export(
     task: str,
     out_path: str | Path,
-    fmt: str = "step",
+    fmt: str = "m3d",
 ) -> Tuple[str, Path]:
-    """Построить и экспортировать. Возвращает (code, path)."""
-    from core import Part  # noqa: F401 — доступно в exec namespace indirectly
-
-    code = run_task(task)
-    # повторный exec с захватом part — хрупко; проще попросить код сохранить
-    # Практичный путь: exec + Part.from_active().export
     from core import Part
 
+    code = run_task(task)
     p = Part.from_active()
     path = p.export(out_path, fmt=fmt)
     return code, path
@@ -92,9 +83,8 @@ def run_task_export(
 
 def main() -> None:
     console = Console()
-
     if len(sys.argv) < 2:
-        console.print('[yellow]Использование:[/] python -m agent.build "описание детали"')
+        console.print('[yellow]Использование:[/] python -m agent.build "описание"')
         sys.exit(1)
 
     task = " ".join(sys.argv[1:])
@@ -103,22 +93,48 @@ def main() -> None:
     try:
         agent = Agent()
         code, errors = agent.generate_checked(task)
-        console.print("[green]Код:[/]\n")
-        console.print(Syntax(code, "python", theme="monokai", line_numbers=True))
+        if code:
+            console.print("[green]Код:[/]\n")
+            console.print(Syntax(code, "python", theme="monokai", line_numbers=True))
 
         if errors or must_fix_holes(code):
-            console.print("\n[red]Код не прошёл проверку — запуск отменён:[/]")
-            for e in errors or ["нужен part.cut для отверстий"]:
+            console.print("\n[red]Проверка не пройдена:[/]")
+            for e in errors or ["отверстия без cut"]:
                 console.print(f"  • {e}")
             sys.exit(2)
 
         console.print("\n[cyan]Запуск в КОМПАС…[/]")
-        # с retry
-        final = run_task(task)
-        if final != code:
-            console.print("[yellow]Код был исправлен после ошибки COM.[/]")
-            console.print(Syntax(final, "python", theme="monokai", line_numbers=True))
-        console.print("[green]Готово.[/]")
+        last_err = None
+        final = code
+        for attempt in range(3):
+            try:
+                execute_code(final)
+                if final != code:
+                    console.print("[yellow]Код после COM-repair:[/]")
+                    console.print(
+                        Syntax(final, "python", theme="monokai", line_numbers=True)
+                    )
+                console.print("[green]Готово.[/]")
+                return
+            except Exception as e:
+                last_err = e
+                console.print(f"[yellow]COM attempt {attempt+1}: {e}[/]")
+                repair = build_repair_prompt(task, final, [str(e)])
+                raw = agent.llm.chat(
+                    [
+                        {"role": "system", "content": get_system_prompt()},
+                        {"role": "user", "content": repair},
+                    ],
+                    temperature=0.1,
+                )
+                new_code = normalize_code(agent._extract_code(raw or ""))
+                ok, errs = validate_generated_code(new_code)
+                if ok:
+                    final = new_code
+                else:
+                    console.print(f"[dim]repair отклонён: {errs}[/]")
+        console.print(f"[red]Ошибка:[/] {last_err}")
+        sys.exit(1)
     except Exception as e:
         console.print(f"[red]Ошибка:[/] {e}")
         sys.exit(1)
