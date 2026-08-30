@@ -1,4 +1,4 @@
-"""Сборка в КОМПАС: шаблон/LLM → exec."""
+"""Сборка в КОМПАС + память успехов."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ from rich.console import Console
 from rich.syntax import Syntax
 
 from .code_fix import normalize_code, must_fix_holes
+from .memory import remember
 from .prompts import build_repair_prompt, get_system_prompt
 from .runner import Agent
 from .validate import validate_generated_code
@@ -21,8 +22,8 @@ if str(_ROOT) not in sys.path:
 
 def execute_code(code: str) -> None:
     code = normalize_code(code)
-    namespace = {"__name__": "__kompas_script__"}
-    exec(compile(code, "<agent-build>", "exec"), namespace, namespace)  # noqa: S102
+    ns = {"__name__": "__kompas_script__"}
+    exec(compile(code, "<agent-build>", "exec"), ns, ns)  # noqa: S102
 
 
 def run_task(task: str, *, max_com_retries: int = 2) -> str:
@@ -38,6 +39,7 @@ def run_task(task: str, *, max_com_retries: int = 2) -> str:
     for attempt in range(max_com_retries):
         try:
             execute_code(final)
+            remember(task, final)
             return final
         except Exception as e:
             last_err = e
@@ -46,7 +48,7 @@ def run_task(task: str, *, max_com_retries: int = 2) -> str:
             try:
                 raw = agent.llm.chat(
                     [
-                        {"role": "system", "content": get_system_prompt()},
+                        {"role": "system", "content": get_system_prompt(task)},
                         {
                             "role": "user",
                             "content": build_repair_prompt(task, final, [str(e)]),
@@ -79,7 +81,6 @@ def main() -> None:
         console.print('[yellow]python -m agent.build "описание"[/]')
         sys.exit(1)
     task = " ".join(sys.argv[1:])
-    console.print(f"[bold]Задача:[/] {task}\n")
     try:
         code = run_task(task)
         console.print(Syntax(code, "python", theme="monokai", line_numbers=True))

@@ -1,4 +1,4 @@
-"""Шаблоны деталей без LLM (не тратят квоту API)."""
+"""Шаблоны без LLM — основной путь для типовых деталей."""
 
 from __future__ import annotations
 
@@ -31,16 +31,18 @@ def try_template(task: str) -> Optional[str]:
     t = task.strip()
     low = t.lower()
 
-    # Втулка
+    # --- Втулка ---
     if any(w in low for w in ("втулк", "bushing", "труба", "pipe")):
-        outer = inner = length = None
+        outer = _f("outer_diameter", t) or _f("наружн", t)
+        inner = _f("inner_diameter", t) or _f("внутр", t)
+        length = _f("length", t) or _f("длин", t)
         m = re.search(
             r"наружн\w*\s*(\d+(?:\.\d+)?).*внутр\w*\s*(\d+(?:\.\d+)?).*длин\w*\s*(\d+(?:\.\d+)?)",
             low,
         )
         if m:
             outer, inner, length = map(float, m.groups())
-        else:
+        if not (outer and inner and length):
             nums = [float(x) for x in re.findall(r"\d+(?:\.\d+)?", t)]
             if len(nums) >= 3:
                 outer, inner, length = nums[0], nums[1], nums[2]
@@ -55,7 +57,7 @@ def try_template(task: str) -> Optional[str]:
                 "part.update()\n"
             )
 
-    # Крышка / flange / stadium / extrude_body из vision
+    # --- Крышка / stadium / flange base ---
     is_cover = any(
         w in low
         for w in (
@@ -67,9 +69,11 @@ def try_template(task: str) -> Optional[str]:
             "бобыш",
             "фланец",
             "extrude_body",
-            "облонг",
+            "cover",
+            "plate",
+            "плит",
         )
-    ) or ("length=" in low and ("thickness=" in low or "width=" in low))
+    ) or ("length=" in low and "width=" in low)
 
     if is_cover:
         L = _f("length", t)
@@ -77,65 +81,68 @@ def try_template(task: str) -> Optional[str]:
         pair = _pair_x(t)
         if pair and (L is None or W is None):
             a, b = pair
-            L, W = (a, b) if a >= b else (b, a)
+            L, W = (max(a, b), min(a, b))
         thick = _f("thickness", t) or _f("толщин", t)
-        if thick is None:
-            m = re.search(r"толщин\w*\s*(\d+(?:\.\d+)?)", low)
-            if m:
-                thick = float(m.group(1))
-        R = (
-            _f("outer_radius", t)
-            or _f("corner_radius", t)
-            or _f("radius", t)
-        )
+        R = _f("outer_radius", t) or _f("corner_radius", t) or _f("radius", t)
         boss_h = _f("boss_height", t)
         if boss_h is None:
-            m = re.search(r"бобыш\w*.*?высот\w*\s*(\d+(?:\.\d+)?)", low)
-            if m:
-                boss_h = float(m.group(1))
-            else:
-                # total_height - thickness
-                th = _f("total_height", t)
-                if th and thick and th > thick:
-                    boss_h = th - thick
+            th = _f("total_height", t)
+            if th and thick and th > thick:
+                boss_h = th - thick
         boss_r = (
             _f("radius_outer", t)
             or _f("inner_radius", t)
             or _f("boss_radius", t)
         )
-        m = re.search(r"бобыш\w*.*?[rр]\s*(\d+(?:\.\d+)?)", low)
-        if m and boss_r is None:
-            boss_r = float(m.group(1))
-        m = re.search(r"[rр](\d+(?:\.\d+)?)\s*высот", low)
-        if m and boss_r is None:
-            boss_r = float(m.group(1))
+        # если «plate» без rounded — rectangle
+        use_round = any(
+            w in low for w in ("stadium", "rounded", "крышк", "бобыш", "oblong", "flange")
+        )
 
         if L and W and thick:
-            R = min(R if R is not None else min(L, W) / 2.0, L / 2.0, W / 2.0)
             x0, y0 = -L / 2.0, -W / 2.0
-            lines = [
-                "from core import Part",
-                "",
-                'part = Part.create("Крышка")',
-                'with part.sketch("xy") as sk:',
-                f"    sk.rounded_rect({x0}, {y0}, {L}, {W}, radius={R})",
-                f"part.extrude(sk, depth={thick})",
-            ]
+            lines = ["from core import Part", "", 'part = Part.create("Деталь")']
+            if use_round:
+                R = min(R if R is not None else min(L, W) / 2.0, L / 2.0, W / 2.0)
+                lines += [
+                    'with part.sketch("xy") as sk:',
+                    f"    sk.rounded_rect({x0}, {y0}, {L}, {W}, radius={R})",
+                    f"part.extrude(sk, depth={thick})",
+                ]
+            else:
+                lines += [
+                    'with part.sketch("xy") as sk:',
+                    f"    sk.rectangle({x0}, {y0}, {L}, {W})",
+                    f"part.extrude(sk, depth={thick})",
+                ]
             if boss_h and boss_r and boss_h > 0 and boss_r > 0:
                 lines += [
                     'with part.sketch("xy") as sk2:',
                     f"    sk2.circle(0, 0, {boss_r})",
                     f"part.extrude(sk2, depth={boss_h})",
                 ]
+            # отверстия по PCD
+            pcd = _f("pcd", t)
+            n_h = _f("hole_count", t) or _f("count", t)
+            hd = _f("hole_diameter", t)
+            if pcd and n_h and hd and int(n_h) >= 2:
+                lines.append(
+                    f"part.pattern_holes_circular((0, 0), pcd={pcd}, count={int(n_h)}, diameter={hd})"
+                )
             lines += ["part.update()", ""]
             return "\n".join(lines)
 
-    # Простой цилиндр / диск
-    if any(w in low for w in ("цилиндр", "диск", "кругл")):
-        d = _f("diameter", t) or _f("диаметр", t)
-        h = _f("height", t) or _f("высот", t) or _f("толщин", t) or _f("length", t)
+    # --- Цилиндр ---
+    if any(w in low for w in ("цилиндр", "диск", "кругл", "shaft", "вал")):
+        d = _f("outer_diameter", t) or _f("diameter", t) or _f("диаметр", t)
+        h = (
+            _f("height", t)
+            or _f("length", t)
+            or _f("толщин", t)
+            or _f("высот", t)
+        )
         nums = [float(x) for x in re.findall(r"\d+(?:\.\d+)?", t)]
-        if d is None and len(nums) >= 1:
+        if d is None and nums:
             d = nums[0]
         if h is None and len(nums) >= 2:
             h = nums[1]

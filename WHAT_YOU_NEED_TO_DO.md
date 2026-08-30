@@ -1,19 +1,13 @@
-# Конфликт в sketch.py — снят
-
-В ветке были маркеры `<<<<<<< HEAD` — Python не мог нормально импортировать `core`, бот не стартовал / падал `ksLineSeg=0`.
+# Генерация + чистка (agent-v2-vision)
 
 ```powershell
 git pull origin agent-v2-vision
-
-# проверка синтаксиса
-python -c "from core.sketch import Sketch; print('ok')"
-
-python -m core.smoke_rounded
+python -m agent.build "Крышка length=116 width=80 thickness=13 outer_radius=40 boss_height=18 inner_radius=30"
 python -m bot
 ```
 
-Если pull снова даст конфликт — возьми версию с remote (уже чистая) или:
-```powershell
-git checkout --theirs core/sketch.py
-git add core/sketch.py
-```
+Типовые детали идут **шаблоном** (без LLM). Успехи пишутся в `.compas_tmp/build_memory.jsonl`.
+
+Локальному агенту: файл **`CODEX_AGENT_PROMPT.md`**.
+
+Потом можно мержить ветку в `main`.
