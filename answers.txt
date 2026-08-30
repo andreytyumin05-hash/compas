@@ -1,9 +1,5 @@
-Ошибка: Код не прошёл проверку: в «коде» английская проза модели — не Python. Нужен только блок from core import Part
-я все же закину полный вывод из тг, ключ виден тебе и мне в answers, насчет него не волнуйся
-
-PS D:\учеба\ML_study\compas> (Set-ExecutionPolicy -Scope Process -ExecutionPolic
-y RemoteSigned) ; (& d:\учеба\ML_stupython -m bot                                                         
-Bot polling…                                         
+(venv) PS D:\учеба\ML_study\compas> python -m bot
+Bot polling… (КОМПАС на этом ПК)
 INFO:httpx:HTTP Request: POST https://api.telegram.org/bot8976285082:AAFmJbtek7CPqHJOZoWSsuzx4Xxa8TdEdck/getMe "HTTP/1.1 200 OK"
 INFO:httpx:HTTP Request: POST https://api.telegram.org/bot8976285082:AAFmJbtek7CPqHJOZoWSsuzx4Xxa8TdEdck/deleteWebhook "HTTP/1.1 200 OK"
 INFO:telegram.ext.Application:Application started
@@ -22,173 +18,16 @@ https://github.com/google-gemini/deprecated-generative-ai-python/blob/main/READM
 
   import google.generativeai as genai
 INFO:httpx:HTTP Request: POST https://api.telegram.org/bot8976285082:AAFmJbtek7CPqHJOZoWSsuzx4Xxa8TdEdck/getUpdates "HTTP/1.1 200 OK"
-INFO:compas.bot:session cleaned user=1305887491 path=D:\учеба\ML_study\compas\.compas_tmp\1305887491_c1fd4c2a68fa
+INFO:compas.bot:session cleaned user=1305887491 path=D:\учеба\ML_study\compas\.compas_tmp\1305887491_200d96b31548
 INFO:httpx:HTTP Request: POST https://api.telegram.org/bot8976285082:AAFmJbtek7CPqHJOZoWSsuzx4Xxa8TdEdck/sendMessage "HTTP/1.1 200 OK"
-INFO:httpx:HTTP Request: POST https://api.telegram.org/bot8976285082:AAFmJbtek7CPqHJOZoWSsuzx4Xxa8TdEdck/getUpdates "HTTP/1.1 200 OK"
-INFO:httpx:HTTP Request: POST https://api.telegram.org/bot8976285082:AAFmJbtek7CPqHJOZoWSsuzx4Xxa8TdEdck/getUpdates "HTTP/1.1 200 OK"
-INFO:httpx:HTTP Request: POST https://api.telegram.org/bot8976285082:AAFmJbtek7CPqHJOZoWSsuzx4Xxa8TdEdck/getUpdates "HTTP/1.1 200 OK"
-ERROR:telegram.ext.Application:No error handlers are registered, logging exception.
-Traceback (most recent call last):
-  File "D:\учеба\ML_study\compas\venv\Lib\site-packages\httpx\_transports\default.py", line 101, in map_httpcore_exceptions
-    yield
-  File "D:\учеба\ML_study\compas\venv\Lib\site-packages\httpx\_transports\default.py", line 394, in handle_async_request
-    resp = await self._pool.handle_async_request(req)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "D:\учеба\ML_study\compas\venv\Lib\site-packages\httpcore\_async\connection_pool.py", line 256, in handle_async_request
-    raise exc from None
-  File "D:\учеба\ML_study\compas\venv\Lib\site-packages\httpcore\_async\connection_pool.py", line 236, in handle_async_request
-    response = await connection.handle_async_request(
-               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-        pool_request.request
-        ^^^^^^^^^^^^^^^^^^^^
-    )
-    ^
-  File "D:\учеба\ML_study\compas\venv\Lib\site-packages\httpcore\_async\connection.py", line 101, in handle_async_request
-    raise exc
-  File "D:\учеба\ML_study\compas\venv\Lib\site-packages\httpcore\_async\connection.py", line 78, in handle_async_request
-    stream = await self._connect(request)
-             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "D:\учеба\ML_study\compas\venv\Lib\site-packages\httpcore\_async\connection.py", line 156, in _connect
-    stream = await stream.start_tls(**kwargs)
-             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "D:\учеба\ML_study\compas\venv\Lib\site-packages\httpcore\_backends\anyio.py", line 67, in start_tls
-    with map_exceptions(exc_map):
-         ~~~~~~~~~~~~~~^^^^^^^^^
-  File "C:\Users\anry2\AppData\Local\Programs\Python\Python314\Lib\contextlib.py", line 162, in __exit__
-    self.gen.throw(value)
-    ~~~~~~~~~~~~~~^^^^^^^
-  File "D:\учеба\ML_study\compas\venv\Lib\site-packages\httpcore\_exceptions.py", line 14, in map_exceptions
-    raise to_exc(exc) from exc
-httpcore.ConnectTimeout
-
-The above exception was the direct cause of the following exception:
-
-Traceback (most recent call last):
-  File "D:\учеба\ML_study\compas\venv\Lib\site-packages\telegram\request\_httpxrequest.py", line 279, in do_request
-    res = await self._client.request(
-          ^^^^^^^^^^^^^^^^^^^^^^^^^^^
-    ...<6 lines>...
-    )
-    ^
-  File "D:\учеба\ML_study\compas\venv\Lib\site-packages\httpx\_client.py", line 1540, in request
-    return await self.send(request, auth=auth, follow_redirects=follow_redirects)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "D:\учеба\ML_study\compas\venv\Lib\site-packages\httpx\_client.py", line 1629, in send
-    response = await self._send_handling_auth(
-               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-    ...<4 lines>...
-    )
-    ^
-  File "D:\учеба\ML_study\compas\venv\Lib\site-packages\httpx\_client.py", line 1657, in _send_handling_auth
-    response = await self._send_handling_redirects(
-               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-    ...<3 lines>...
-    )
-    ^
-  File "D:\учеба\ML_study\compas\venv\Lib\site-packages\httpx\_client.py", line 1694, in _send_handling_redirects
-    response = await self._send_single_request(request)
-               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "D:\учеба\ML_study\compas\venv\Lib\site-packages\httpx\_client.py", line 1730, in _send_single_request
-    response = await transport.handle_async_request(request)
-               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "D:\учеба\ML_study\compas\venv\Lib\site-packages\httpx\_transports\default.py", line 393, in handle_async_request
-    with map_httpcore_exceptions():
-         ~~~~~~~~~~~~~~~~~~~~~~~^^
-  File "C:\Users\anry2\AppData\Local\Programs\Python\Python314\Lib\contextlib.py", line 162, in __exit__
-    self.gen.throw(value)
-    ~~~~~~~~~~~~~~^^^^^^^
-  File "D:\учеба\ML_study\compas\venv\Lib\site-packages\httpx\_transports\default.py", line 118, in map_httpcore_exceptions
-    raise mapped_exc(message) from exc
-httpx.ConnectTimeout
-
-The above exception was the direct cause of the following exception:
-
-Traceback (most recent call last):
-  File "D:\учеба\ML_study\compas\venv\Lib\site-packages\telegram\ext\_application.py", line 1315, in process_update
-    await coroutine
-  File "D:\учеба\ML_study\compas\venv\Lib\site-packages\telegram\ext\_handlers\basehandler.py", line 159, in handle_update
-    return await self.callback(update, context)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "D:\учеба\ML_study\compas\bot\__main__.py", line 146, in on_callback
-    await q.answer()
-  File "D:\учеба\ML_study\compas\venv\Lib\site-packages\telegram\_callbackquery.py", line 190, in answer
-    return await self.get_bot().answer_callback_query(
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-    ...<10 lines>...
-    )
-    ^
-  File "D:\учеба\ML_study\compas\venv\Lib\site-packages\telegram\ext\_extbot.py", line 978, in answer_callback_query
-    return await super().answer_callback_query(
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-    ...<10 lines>...
-    )
-    ^
-  File "D:\учеба\ML_study\compas\venv\Lib\site-packages\telegram\_bot.py", line 4362, in answer_callback_query
-    return await self._post(
-           ^^^^^^^^^^^^^^^^^
-    ...<7 lines>...
-    )
-    ^
-  File "D:\учеба\ML_study\compas\venv\Lib\site-packages\telegram\_bot.py", line 712, in _post
-    return await self._do_post(
-           ^^^^^^^^^^^^^^^^^^^^
-    ...<6 lines>...
-    )
-    ^
-  File "D:\учеба\ML_study\compas\venv\Lib\site-packages\telegram\ext\_extbot.py", line 378, in _do_post
-    return await super()._do_post(
-           ^^^^^^^^^^^^^^^^^^^^^^^
-    ...<6 lines>...
-    )
-    ^
-  File "D:\учеба\ML_study\compas\venv\Lib\site-packages\telegram\_bot.py", line 741, in _do_post
-    result = await request.post(
-             ^^^^^^^^^^^^^^^^^^^
-    ...<6 lines>...
-    )
-    ^
-  File "D:\учеба\ML_study\compas\venv\Lib\site-packages\telegram\request\_baserequest.py", line 198, in post
-    result = await self._request_wrapper(
-             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-    ...<7 lines>...
-    )
-    ^
-  File "D:\учеба\ML_study\compas\venv\Lib\site-packages\telegram\request\_baserequest.py", line 305, in _request_wrapper
-    code, payload = await self.do_request(
-                    ^^^^^^^^^^^^^^^^^^^^^^
-    ...<7 lines>...
-    )
-    ^
-  File "D:\учеба\ML_study\compas\venv\Lib\site-packages\telegram\request\_httpxrequest.py", line 296, in do_request
-    raise TimedOut from err
-telegram.error.TimedOut: Timed out
-INFO:httpx:HTTP Request: POST https://api.telegram.org/bot8976285082:AAFmJbtek7CPqHJOZoWSsuzx4Xxa8TdEdck/getUpdates "HTTP/1.1 200 OK"
 INFO:httpx:HTTP Request: POST https://api.telegram.org/bot8976285082:AAFmJbtek7CPqHJOZoWSsuzx4Xxa8TdEdck/getUpdates "HTTP/1.1 200 OK"
 INFO:httpx:HTTP Request: POST https://api.telegram.org/bot8976285082:AAFmJbtek7CPqHJOZoWSsuzx4Xxa8TdEdck/answerCallbackQuery "HTTP/1.1 200 OK"
 INFO:httpx:HTTP Request: POST https://api.telegram.org/bot8976285082:AAFmJbtek7CPqHJOZoWSsuzx4Xxa8TdEdck/editMessageText "HTTP/1.1 200 OK"
 INFO:httpx:HTTP Request: POST https://api.telegram.org/bot8976285082:AAFmJbtek7CPqHJOZoWSsuzx4Xxa8TdEdck/sendMessage "HTTP/1.1 200 OK"
 INFO:httpx:HTTP Request: GET https://api.groq.com/openai/v1/models "HTTP/1.1 200 OK"
-INFO:httpx:HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
-INFO:httpx:HTTP Request: POST https://api.telegram.org/bot8976285082:AAFmJbtek7CPqHJOZoWSsuzx4Xxa8TdEdck/getUpdates "HTTP/1.1 200 OK"
-INFO:httpx:HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
-INFO:httpx:HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 429 Too Many Requests"
-INFO:groq._base_client:Retrying request to /openai/v1/chat/completions in 3.000000 seconds
-INFO:httpx:HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 429 Too Many Requests"
-INFO:groq._base_client:Retrying request to /openai/v1/chat/completions in 15.000000 seconds
-INFO:httpx:HTTP Request: POST https://api.telegram.org/bot8976285082:AAFmJbtek7CPqHJOZoWSsuzx4Xxa8TdEdck/getUpdates "HTTP/1.1 200 OK"
-INFO:httpx:HTTP Request: POST https://api.telegram.org/bot8976285082:AAFmJbtek7CPqHJOZoWSsuzx4Xxa8TdEdck/getUpdates "HTTP/1.1 200 OK"
-INFO:httpx:HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
-INFO:httpx:HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 429 Too Many Requests"
-INFO:groq._base_client:Retrying request to /openai/v1/chat/completions in 12.000000 seconds
-INFO:httpx:HTTP Request: POST https://api.telegram.org/bot8976285082:AAFmJbtek7CPqHJOZoWSsuzx4Xxa8TdEdck/getUpdates "HTTP/1.1 200 OK"
-INFO:httpx:HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 429 Too Many Requests"
-INFO:groq._base_client:Retrying request to /openai/v1/chat/completions in 15.000000 seconds
-INFO:httpx:HTTP Request: POST https://api.telegram.org/bot8976285082:AAFmJbtek7CPqHJOZoWSsuzx4Xxa8TdEdck/getUpdates "HTTP/1.1 200 OK"
 INFO:httpx:HTTP Request: POST https://api.telegram.org/bot8976285082:AAFmJbtek7CPqHJOZoWSsuzx4Xxa8TdEdck/getUpdates "HTTP/1.1 200 OK"
 INFO:httpx:HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
 INFO:httpx:HTTP Request: POST https://api.telegram.org/bot8976285082:AAFmJbtek7CPqHJOZoWSsuzx4Xxa8TdEdck/sendMessage "HTTP/1.1 200 OK"
-INFO:httpx:HTTP Request: POST https://api.telegram.org/bot8976285082:AAFmJbtek7CPqHJOZoWSsuzx4Xxa8TdEdck/getUpdates "HTTP/1.1 200 OK"
-INFO:httpx:HTTP Request: POST https://api.telegram.org/bot8976285082:AAFmJbtek7CPqHJOZoWSsuzx4Xxa8TdEdck/getUpdates "HTTP/1.1 200 OK"
 INFO:httpx:HTTP Request: POST https://api.telegram.org/bot8976285082:AAFmJbtek7CPqHJOZoWSsuzx4Xxa8TdEdck/getUpdates "HTTP/1.1 200 OK"
 INFO:httpx:HTTP Request: POST https://api.telegram.org/bot8976285082:AAFmJbtek7CPqHJOZoWSsuzx4Xxa8TdEdck/getUpdates "HTTP/1.1 200 OK"
 INFO:httpx:HTTP Request: POST https://api.telegram.org/bot8976285082:AAFmJbtek7CPqHJOZoWSsuzx4Xxa8TdEdck/getUpdates "HTTP/1.1 200 OK"
@@ -197,12 +36,10 @@ INFO:telegram.ext.Application:Application is stopping. This might take a moment.
 INFO:telegram.ext.Application:Application.stop() complete
 ERROR:asyncio:Task was destroyed but it is pending!
 task: <Task pending name='Task-5' coro=<BuildQueue.start.<locals>._loop() running at D:\учеба\ML_study\compas\bot\queue.py:36> wait_for=<Future pending cb=[Task.task_wakeup()]>>
-Exception ignored while closing generator <coroutine object BuildQueue.start.<locals>._loop at 0x000001DCAFD9F970>:
+Exception ignored while closing generator <coroutine object BuildQueue.start.<locals>._loop at 0x000001DC793CB790>:
 Traceback (most recent call last):
   File "D:\учеба\ML_study\compas\bot\queue.py", line 36, in _loop
   File "C:\Users\anry2\AppData\Local\Programs\Python\Python314\Lib\asyncio\queues.py", line 188, in get
   File "C:\Users\anry2\AppData\Local\Programs\Python\Python314\Lib\asyncio\base_events.py", line 827, in call_soon
   File "C:\Users\anry2\AppData\Local\Programs\Python\Python314\Lib\asyncio\base_events.py", line 550, in _check_closed
 RuntimeError: Event loop is closed
-
-выдает снова ошибку
