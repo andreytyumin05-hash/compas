@@ -1,20 +1,57 @@
-(venv) PS D:\учеба\ML_study\compas> python -m bot
-Traceback (most recent call last):
-  File "<frozen runpy>", line 198, in _run_module_as_main
-  File "<frozen runpy>", line 88, in _run_code
-  File "D:\учеба\ML_study\compas\bot\__main__.py", line 206, in <module>
-    main()
-    ~~~~^^
-  File "D:\учеба\ML_study\compas\bot\__main__.py", line 54, in main
-    from bot.sessions import session_workspace
-  File "D:\учеба\ML_study\compas\bot\sessions.py", line 16
-    session_workspace(user_id: int) -> Iterator[Path]:
-    ^^^^^^^^^^^^^^^^^
-SyntaxError: invalid syntax
+$ python -m bot
+Bot polling…
+INFO:httpx:HTTP Request: POST https://api.telegram.org/bot8976285082:AAFmJbtek7CPqHJOZoWSsuzx4Xxa8TdEdck/getMe "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.telegram.org/bot8976285082:AAFmJbtek7CPqHJOZoWSsuzx4Xxa8TdEdck/deleteWebhook "HTTP/1.1 200 OK"
+INFO:telegram.ext.Application:Application started
+INFO:httpx:HTTP Request: POST https://api.telegram.org/bot8976285082:AAFmJbtek7CPqHJOZoWSsuzx4Xxa8TdEdck/getUpdates "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.telegram.org/bot8976285082:AAFmJbtek7CPqHJOZoWSsuzx4Xxa8TdEdck/sendMessage "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: GET https://api.groq.com/openai/v1/models "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.telegram.org/bot8976285082:AAFmJbtek7CPqHJOZoWSsuzx4Xxa8TdEdck/getUpdates "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.telegram.org/bot8976285082:AAFmJbtek7CPqHJOZoWSsuzx4Xxa8TdEdck/sendMessage "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.telegram.org/bot8976285082:AAFmJbtek7CPqHJOZoWSsuzx4Xxa8TdEdck/sendDocument "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.telegram.org/bot8976285082:AAFmJbtek7CPqHJOZoWSsuzx4Xxa8TdEdck/sendDocument "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.telegram.org/bot8976285082:AAFmJbtek7CPqHJOZoWSsuzx4Xxa8TdEdck/getUpdates "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.telegram.org/bot8976285082:AAFmJbtek7CPqHJOZoWSsuzx4Xxa8TdEdck/getUpdates "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.telegram.org/bot8976285082:AAFmJbtek7CPqHJOZoWSsuzx4Xxa8TdEdck/sendMessage "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.telegram.org/bot8976285082:AAFmJbtek7CPqHJOZoWSsuzx4Xxa8TdEdck/getFile "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: GET https://api.telegram.org/file/bot8976285082%3AAAFmJbtek7CPqHJOZoWSsuzx4Xxa8TdEdck/photos/file_0.jpg "HTTP/1.1 200 OK"
+D:\учеба\ML_study\compas\agent\vision.py:55: FutureWarning: 
 
-$ python -m core.smoke_export
-smoke_export — КОМПАС открыт
-OK D:\учеба\ML_study\compas\.compas_tmp\smoke_export_aaf5017f4c3f\part.m3d size=47614
-OK D:\учеба\ML_study\compas\.compas_tmp\smoke_export_aaf5017f4c3f\part.step size=4504
-OK export+close
-(venv) 
+All support for the `google.generativeai` package has ended. It will no longer be receiving 
+updates or bug fixes. Please switch to the `google.genai` package as soon as possible.
+See README for more details:
+
+https://github.com/google-gemini/deprecated-generative-ai-python/blob/main/README.md
+
+  import google.generativeai as genai
+INFO:httpx:HTTP Request: POST https://api.telegram.org/bot8976285082:AAFmJbtek7CPqHJOZoWSsuzx4Xxa8TdEdck/sendMessage "HTTP/1.1 200 OK"
+INFO:compas.bot:session cleaned user=1305887491 path=D:\учеба\ML_study\compas\.compas_tmp\1305887491_477b3fee3077
+INFO:httpx:HTTP Request: POST https://api.telegram.org/bot8976285082:AAFmJbtek7CPqHJOZoWSsuzx4Xxa8TdEdck/getUpdates "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.telegram.org/bot8976285082:AAFmJbtek7CPqHJOZoWSsuzx4Xxa8TdEdck/getUpdates "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.telegram.org/bot8976285082:AAFmJbtek7CPqHJOZoWSsuzx4Xxa8TdEdck/getUpdates "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.telegram.org/bot8976285082:AAFmJbtek7CPqHJOZoWSsuzx4Xxa8TdEdck/getUpdates "HTTP/1.1 200 OK"
+INFO:telegram.ext.Application:Application is stopping. This might take a moment.
+INFO:telegram.ext.Application:Application.stop() complete
+ERROR:asyncio:Task was destroyed but it is pending!
+task: <Task pending name='Task-5' coro=<BuildQueue.start.<locals>._loop() running at D:\учеба\ML_study\compas\bot\queue.py:36> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Exception ignored while closing generator <coroutine object BuildQueue.start.<locals>._loop at 0x0000015E0928F5B0>:
+Traceback (most recent call last):
+  File "D:\учеба\ML_study\compas\bot\queue.py", line 36, in _loop
+  File "C:\Users\anry2\AppData\Local\Programs\Python\Python314\Lib\asyncio\queues.py", line 188, in get
+  File "C:\Users\anry2\AppData\Local\Programs\Python\Python314\Lib\asyncio\base_events.py", line 827, in call_soon
+  File "C:\Users\anry2\AppData\Local\Programs\Python\Python314\Lib\asyncio\base_events.py", line 550, in _check_closed
+RuntimeError: Event loop is closed
+
+в бот написал сначала привет, посмотреть как он работает, а он сразу деталь начал каку. то создавать, это еше ладно
+при распознаии черетжа выдал ошибку, vision не удался, нужен гемини апи, хотя он в енв лежит
+пишет generaterequest.model: inexpected model name format; openrouter_api_key не задан 
+что нужно в env?
+LLM_PROVIDER=groq
+GROQ_API_KEY=
+LLM_MODEL=qwen/qwen3.6-27b
+LLM_TEMPERATURE=0.2
+TELEGRAM_BOT_TOKEN=
+GEMINI_API_KEY=
+это есть 
