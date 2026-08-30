@@ -1,17 +1,10 @@
-Не распознал: Vision Gemini не удался. Проверь GEMINI_API_KEY и сеть. Модель: gemini-2.0-flash. 404 This model models/gemini-2.0-flash is no longer available. Please update your code to use models/gemini-3.6-flash for the latest features and improvements. We recommend you to use the Interactions API.
+В очереди…
+Деталь: Крышка (тип flange), единицы: mm
+Габариты: width=80.0, height=31.0, length=116.0, thickness=13.0
+1. extrude_body: {'shape': 'stadium', 'length': 116.0, 'width': 80.0, 'thickness': 13.0, 'corner_radius': 40.0, 'center_distance': 36.0} Нижняя фланцевая часть основания толщиной 13 мм с габаритами 116х80 мм (R40)
+2. extrude_body: {'shape': 'stadium', 'total_height': 31.0, 'boss_height': 18.0, 'radius_outer': 30.0, 'center_distance': 36.0} Верхняя выступающая бобышка суммарной высотой 31 мм
+3
+Очередь ~1. Строю…
+Ошибка: Код не прошёл проверку: пустой код
 
-Проверьте в .env:
-GEMINI_API_KEY=...
-VISION_MODEL=gemini-2.0-flash
-(LLM_MODEL для Groq на vision не влияет)
-
-my env
-LLM_PROVIDER=groq
-GROQ_API_KEY=
-LLM_MODEL=llama-3.3-70b-versatile
-LLM_TEMPERATURE=0.2
-TELEGRAM_BOT_TOKEN=
-
-VISION_PROVIDER=gemini
-VISION_MODEL=gemini-3.6-flash
-GEMINI_API_KEY=
+саму деталь более менее понял, есть вопросы, но это все же нейронка
