@@ -1,7 +1,6 @@
 __pycache__/
 *.py[cod]
 *$py.class
-*.so
 .Python
 env/
 venv/
@@ -14,9 +13,16 @@ build/
 .vscode/
 *.log
 .DS_Store
+.compas_tmp/
 scripts/generated/
 responce.txt
 response.txt
+answers
+answers.txt
 *.a3d
 *.m3d
 *.cdw
+*.step
+*.stp
+*.stl
+CODEX_CHECKLIST.md.bak

@@ -1,100 +1,122 @@
-"""
-Системный промпт агента КОМПАС-3D.
-Жёстко привязан к API обёртки core — модель не должна выдумывать другие классы.
-"""
+"""Промпт: дерево фич для сложных деталей."""
 
-SYSTEM_PROMPT = """Ты генерируешь Python-код для КОМПАС-3D ТОЛЬКО через обёртку `core`.
+from .knowledge import load_patterns
+from .memory import few_shot_from_memory
 
-## Единственный разрешённый API
+_API = '''
+## API core (только эти методы)
 
 ```python
 from core import Part
-
-part = Part.create("ИмяДетали")          # новая деталь
-
-sk = part.sketch("xy")                   # плоскость: xy | xz | yz
-with part.sketch("xy") as sk:            # предпочтительно для нескольких примитивов
-    ...
-
-sk.circle(xc, yc, radius)                # ОКУС, не диаметр!
-sk.rectangle(x, y, width, height)        # левый нижний угол, мм
-sk.line(x1, y1, x2, y2)
-sk.polygon([(x, y), ...], closed=True)
-
-part.extrude(sk, depth=10.0)             # выдавливание
-part.extrude(sk, depth=5.0, both_directions=True)
-part.cut(sk, through_all=True)           # сквозной вырез
-part.cut(sk, depth=3.0)                  # вырез на глубину
-part.revolve(sk, angle=360.0)            # только если в задаче явно вращение
-part.name = "Имя"
+part = Part.create("Имя")
+with part.sketch("xy") as sk:  # xy | xz | yz
+    sk.circle(xc, yc, radius)
+    sk.rectangle(x, y, w, h)
+    sk.rounded_rect(x, y, w, h, radius=R)
+    sk.stadium(x, y, length, width)
+    sk.ellipse / sk.line / sk.polygon / sk.polyline / sk.slot / sk.spline / sk.arc_by_points
+part.extrude(sk, depth=H)                    # база или бобышка (второе+)
+part.cut(sk, depth=D)                        # глухой карман
+part.cut(sk, through_all=True)               # сквозной вырез
+part.hole(x, y, diameter=D, through_all=True)
+part.hole(x, y, diameter=D, depth=H)         # глухое, если API поддерживает depth
+part.pattern_holes_circular((0,0), pcd=P, count=N, diameter=D)
+part.pattern_holes_rect(x1,y1,x2,y2, diameter=D)
+part.pattern_holes_points([(x1,y1), (x2,y2)], diameter=D)
+part.pattern_holes_linear((x0,y0), count=N, step=S, diameter=D, direction=(1,0))
+part.boss(x, y, diameter=D, height=H)
+part.hex_boss(x, y, diameter=D, height=H)
+part.pocket(x, y, diameter=D, depth=H)
+part.groove(x, y, outer_diameter=D2, inner_diameter=D1, depth=H)
+part.keyway(x, y, length=L, width=W, depth=H, axis="x")
+part.counterbore(x, y, pilot_diameter=D1, counterbore_diameter=D2, counterbore_depth=H)
+part.countersink(x, y, pilot_diameter=D1, countersink_diameter=D2, depth=H)
+part.slot(x1, y1, x2, y2, width=W, depth=H, through_all=True)
+part.step(x, y, width=W, height=H, depth=D, shape="rect")
+part.mirror_points(points, axis="x")
+part.sketch_on_face("top", plane="xy")
+part.shell(thickness=T)                     # контракт API; только если реально доступно в детале
+part.thread(x, y, diameter=D, pitch=P, length=L, through_all=True)
+part.sweep(profile, path)                    # контракт API; требует отдельную реализацию
+part.loft([sk1, sk2, sk3])                  # контракт API; требует отдельную реализацию
+edges = part.get_edges("all")
+part.fillet(edges, radius=r)
+part.chamfer(edges, distance=d)
+part.fillet_edge(radius=r, filter="all")
+part.chamfer_edge(distance=d, filter="all")
 part.update()
 ```
 
-ЗАПРЕЩЕНО:
-- import win32com, gencache, Circle, Rectangle, Sketch как отдельные классы
-- Part.createSketch, .move(), diameter=, любые несуществующие методы
-- библиотеки кроме `from core import Part`
+Запрещено: win32com, loft, sweep, boolean, неизвестные методы, текст вместо кода.
+ØD → circle radius D/2 или hole(diameter=D).
+'''
 
-## Геометрия (обязательно)
+_LOGIC = '''
+## Логика сложной детали (обязательно)
 
-- Все размеры в миллиметрах.
-- Если дан ДИАМЕТР D → в circle передавай radius = D/2.
-- Ось детали обычно вдоль Z: эскиз на xy, extrude по depth = длина.
-- Сквозное отверстие: отдельный эскиз + cut(..., through_all=True).
-- Несколько отверстий: один эскиз с несколькими circle, затем один cut through_all.
-- Центр симметричной детали — в (0, 0), если не сказано иначе.
+Думай деревом построения, не одним эскизом:
 
-## Типовые схемы (используй как шаблоны рассуждения)
+1) БАЗА — один контур + extrude(толщина/высота основания)
+2) СТУПЕНИ / БОБЫШКИ — отдельные sketch + extrude на том же или другом виде
+3) КАРМАНЫ — sketch контура выборки + cut(depth=...) НЕ through_all
+4) ОТВЕРСТИЯ — hole / pattern_*; зенковка ≈ сначала shallow cut/hole большего Ø, потом основной hole
+5) УСТУПЫ / ПАЗЫ / СИММЕТРИЯ — step / slot / keyway / mirror_points при наличии конструктивных признаков
+6) ВЫСТУПЫ И КАНАВКИ — hex_boss / boss / groove / ring_groove для шестигранников, шпоночных пазов и канавок, если задача явно про это
+7) КРИВЫЕ И ПОВЕРХНОСТИ — spline / arc_by_points / sketch_on_face / sweep / loft как возможные базовые конструкции, если задаётся сложная форма
+8) ОБРАБОТКИ — counterbore / countersink / thread / shell только когда требуется техническая операция, а не просто базовый корпус
+9) КРОМКИ — fillet/chamfer в конце
 
-### Втулка / труба / кольцо
-1) circle(R_нар) → extrude(длина)
-2) circle(R_внутр) → cut(through_all=True)
+Жёсткие правила:
+- Не допускать "схлопывание" детали в одиночное тело без заявленных вторичных элементов.
+- Если в ТЗ есть boss / step / pocket / slot / hole / fillet / chamfer / shell / thread, в коде должен быть отдельный блок для каждого элемента, когда это реально требуется.
+- Нельзя выдавать только базовую основу, если в ТЗ явно есть карман, бобышка, отверстия или финишные кромки.
+- Не смешивать контур базы и вырез в одном эскизе.
+- Глухой вырез: cut(sk, depth=...), не through_all.
+- Сквозное: through_all=True.
+- Несколько уровней высоты = несколько extrude подряд.
+- Плоскость: явно sketch("xy"|"xz"|"yz").
+- Если есть несколько групп отверстий — генерируй pattern_holes_circular/rect, а не один общий circle.
+- Скругления и фаски делаются ПОСЛЕ базового тела и всех вырезов.
+'''
 
-### Пластина / фланец (прямоугольный или круглый) с отверстиями
-1) rectangle или circle → extrude(толщина)
-2) отверстия: circle в нужных (x,y) → cut(through_all=True)
+_RULES = '''
+Формат ответа:
+- 2–5 строк плана: База → … → Кромки
+- один блок ```python с from core import Part и part.update()
+- код с колонки 0, без пояснений внутри блока
+'''
 
-### Валик / цилиндр без отверстия
-1) circle(R) → extrude(длина)
 
-### Ступенчатый вал (упрощённо)
-1) больший цилиндр extrude
-2) на торце нельзя сменить плоскость API — делай последовательные extrude от одного основания
-   ИЛИ один большой цилиндр + cut кольцевых зон, если хватает API
-   (если задачу нельзя выразить текущим API — максимально близкое упрощение + комментарий)
+def get_system_prompt(task: str = "") -> str:
+    mem = few_shot_from_memory(task) if task else ""
+    return (
+        "Ты инженер-конструктор КОМПАС. Пишешь только исполняемый код core.\n"
+        + _API
+        + _LOGIC
+        + ("\n## Успешные прошлые сборки\n" + mem + "\n" if mem else "")
+        + _RULES
+        + "\n## Справка\n"
+        + load_patterns()
+    )
 
-### Кронштейн / уголок (упрощённо)
-1) прямоугольная пластина extrude
-2) вторая стенка: ограниченно (нет произвольных плоскостей) — делай одну пластину с отверстиями и комментарий об упрощении
 
-Если операции не хватает (фаска, резьба, массив, новая плоскость) — НЕ выдумывай API.
-Собери геометрию тем, что есть, и кратко закомментируй, чего не хватило.
-
-## Порядок в коде
-
-1. from core import Part
-2. part = Part.create("...")
-3. эскизы и операции по порядку построения
-4. part.update() в конце (можно)
-
-Код должен быть самодостаточным и исполняемым как скрипт.
-
-## Формат ответа
-
-Сначала 1–3 коротких предложения плана (без кода).
-Затем РОВНО один блок:
-
-```python
-...
-```
-
-После блока ничего не пиши.
-"""
+SYSTEM_PROMPT = get_system_prompt()
 
 
 def build_user_prompt(task: str) -> str:
     return (
-        "Сгенерируй код детали по описанию.\n"
-        "Соблюдай API core строго.\n\n"
-        f"Описание:\n{task.strip()}"
+        "Построй деталь по ТЗ строго по дереву фич.\n"
+        "Запрещено упрощать модель до одного базового тела, если есть boss/step/pocket/hole/fillet/chamfer.\n"
+        "Сначала короткий план: База → Бобышки/ступени → Карманы → Отверстия → Кромки.\n"
+        "Затем один блок ```python``` только с исполняемым кодом core.\n\n"
+        f"ТЗ:\n{task.strip()}"
+    )
+
+
+def build_repair_prompt(task: str, bad_code: str, errors: list) -> str:
+    err = "\n".join(f"- {e}" for e in errors) or "- ошибка"
+    return (
+        "Исправь под API core. Только ```python.\n"
+        f"Ошибки:\n{err}\n\nТЗ:\n{task.strip()}\n\n"
+        f"Было:\n```python\n{(bad_code or '')[:2500]}\n```\n"
     )
