@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from .connection import (
     KompasApp,
@@ -186,16 +186,6 @@ class Part:
         point: Optional[Tuple[float, float, float]] = None,
         tol: float = 1.0,
     ) -> EdgeSet:
-        """
-        Рёбра тела по предикату (не сырые COM-ID).
-
-        filter: all | parallel_x/y/z | near_point | top_z | bottom_z
-
-        Example:
-            edges = part.get_edges("all")
-            edges = part.get_edges("parallel_z")
-            edges = part.get_edges("near_point", point=(0, 0, 25), tol=2)
-        """
         return _get_edges(self._part, filter, point=point, tol=tol)
 
     def chamfer(
@@ -205,16 +195,8 @@ class Part:
         *,
         size: Optional[float] = None,
     ) -> Any:
-        """
-        Фаска по EdgeSet.
-
-        Example:
-            part.chamfer(part.get_edges("all"), distance=1.0)
-            part.chamfer(size=1.0)  # все рёбра (совместимость)
-        """
         from .part_advanced import apply_chamfer, try_chamfer
 
-        # legacy: chamfer(size=1.0) or chamfer(1.0)
         if isinstance(edges, (int, float)) and distance is None:
             return try_chamfer(self, float(edges))
         if edges is None or isinstance(edges, (int, float)):
@@ -224,7 +206,7 @@ class Part:
         if d <= 0:
             raise KompasOperationError("chamfer: distance > 0")
         if not isinstance(edges, EdgeSet):
-            raise KompasOperationError("chamfer: нужен EdgeSet из part.get_edges(...)")
+            raise KompasOperationError("chamfer: нужен EdgeSet")
         return apply_chamfer(self, edges, d)
 
     def fillet(
@@ -232,13 +214,6 @@ class Part:
         edges: Union[EdgeSet, float, None] = None,
         radius: Optional[float] = None,
     ) -> Any:
-        """
-        Скругление по EdgeSet.
-
-        Example:
-            part.fillet(part.get_edges("all"), radius=1.0)
-            part.fillet(radius=1.0)  # все рёбра
-        """
         from .part_advanced import apply_fillet, try_fillet
 
         if isinstance(edges, (int, float)) and radius is None:
@@ -250,7 +225,7 @@ class Part:
         if r <= 0:
             raise KompasOperationError("fillet: radius > 0")
         if not isinstance(edges, EdgeSet):
-            raise KompasOperationError("fillet: нужен EdgeSet из part.get_edges(...)")
+            raise KompasOperationError("fillet: нужен EdgeSet")
         return apply_fillet(self, edges, r)
 
     def hole(
@@ -315,8 +290,24 @@ class Part:
             plane=plane,
         )
 
-    def export(self, path: str | Path, fmt: str = "step") -> Path:
+    def export(self, path: str | Path, fmt: str = "m3d") -> Path:
+        """Сохранить. По умолчанию нативный .m3d."""
         return _export.export_part(self, path, fmt=fmt)
+
+    def close(self, *, save: bool = False) -> None:
+        """Закрыть документ в КОМПАС."""
+        _export.close_document(self, save=save)
+
+    def export_formats(
+        self,
+        out_dir: str | Path,
+        formats: Optional[List[str]] = None,
+        *,
+        close: bool = False,
+    ) -> List[Path]:
+        return _export.export_and_cleanup(
+            self, Path(out_dir), formats=formats, close=close
+        )
 
     def mass_properties(self) -> Dict[str, Any]:
         return _mass.get_mass_properties(self)

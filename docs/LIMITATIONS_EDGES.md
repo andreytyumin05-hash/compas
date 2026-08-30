@@ -1,46 +1,23 @@
-# Ограничения: рёбра, фаска, скругление
+# Рёбра / фаска / скругление (v23)
 
-## Что реализовано
+## Подтверждено на машине пользователя (smoke_edges 4/4)
 
-| API | Смысл |
-|-----|--------|
-| `part.get_edges("all")` | Собрать рёбра через `EntityCollection(o3d_edge*)` или `Face.EdgeCollection` |
-| `parallel_x/y/z` | Фильтр по `direction` ребра, если COM отдал вектор |
-| `near_point` / `top_z` / `bottom_z` | Фильтр по `midpoint`, если COM отдал координаты |
-| `part.chamfer(edges, distance=…)` | NewEntity(chamfer) + attach edges + size |
-| `part.fillet(edges, radius=…)` | NewEntity(fillet) + attach edges + radius |
+- `EntityCollection(o3d_edge=7)` собирает рёбра
+- `GetDefinition` — **property**, без `()`
+- `definition.array().Add(edge)` + `Create` — fillet/chamfer работают
+- `near_point` / `SelectByPoint` — работает (bushing: 1 ребро)
 
-Ошибки геометрии (слишком большой радиус и т.п.) поднимаются как `KompasOperationError` с текстом, не как сырой COM.
+## API
 
-## Что может не работать на конкретной установке
-
-1. **Пустой `get_edges("all")`**  
-   Typelib не зарегистрирована / id `o3d_edge` другие / тело без solid.  
-   → Сначала `extrude`, затем smoke; при необходимости править `_O3D_EDGE_CANDIDATES` в `core/edges.py`.
-
-2. **`parallel_*`, `top_z`, `near_point`**  
-   Нужны midpoint/direction с ребра. Late binding часто **не отдаёт** геометрию ребра → фильтр честно падает с просьбой использовать `"all"`.
-
-3. **Привязка рёбер к fillet/chamfer definition**  
-   Пути `AddArrayOfEdges` / `Edges.Add` / `ArrayOfEdges` перебираются. Если ни один не принят — ошибка «Не удалось привязать рёбра…». Это зависит от версии API5 definition, не от LLM.
-
-4. **Скругление после сложных булевых**  
-   Не тестировалось стабильно: пересечения, короткие рёбра, T-стыки часто отвергаются ядром КОМПАС даже из UI.
-
-5. **Выбор «рёбра одной грани по нормали» / «пересечение двух граней»**  
-   Заготовки фильтрации по face normal требуют надёжного чтения нормали грани из COM; пока **не** выставляются как обещанный API для LLM, чтобы не врать.
-
-## Как проверить у себя
-
-```powershell
-git checkout agent-v2-vision
-# КОМПАС открыт
-python -m core.smoke_edges
-python -m core.smoke_edges cube bushing plate
+```python
+edges = part.get_edges("all")
+part.fillet(edges, radius=2.0)
+part.chamfer(edges, distance=1.5)
+near = part.get_edges("near_point", point=(20, 0, 50))
 ```
 
-Лог stdout (число рёбер, OK/FAIL) — приложи к PR. Скриншоты КОМПАС — с твоей машины (CI без GUI КОМПАС не соберёт).
+Фильтры `parallel_*` / `top_z` без midpoint в late-binding **не** обещаем.
 
-## Loft / sweep / boolean
+## Число рёбер
 
-В этой итерации **не** добавляются в публичный API агента (чтобы LLM/бот не обещали несуществующее). Отдельная задача после стабилизации рёбер.
+У «куба» в логе может быть >12 (вспомогательная топология КОМПАС) — не ошибка, если fillet OK.

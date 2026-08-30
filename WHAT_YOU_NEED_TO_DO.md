@@ -1,36 +1,39 @@
 # Сейчас
 
+## Фаски — готово
+`python -m core.smoke_edges` → **Passed 4/4** (по твоему answers).
+
+## Новое после этого коммита
+
+1. **Экспорт `.m3d`** (нативный) + `.step`
+2. **`part.close()`** — закрытие документа после отдачи файлов
+3. Бот шлёт **оба** файла и чистит tmp
+
 ```powershell
 git pull origin agent-v2-vision
-python -m core.smoke_edges
+
+# опционально проверить SaveAs
+python -m core.smoke_export
 ```
 
-## Фикс по последнему answers
-
-`GetDefinition invoke: Член группы не найден` — снова вызывали **`()``** у property.  
-Как с `ActiveDocument3D`: писать `entity.GetDefinition` **без скобок**. То же для `First`/`Next` на коллекции рёбер.
-
-Ждём `OK` в smoke_edges. Лог → `answers.txt`.
-
-## Бот (уже в ветке)
-
-| Возможность | Статус |
-|-------------|--------|
-| Текст → build | да |
-| **Фото чертежа** | да (`filters.PHOTO` → vision → кнопки верно/нет) |
-| Очередь (1 КОМПАС) | да |
-| Прислать **STEP** | да, если `Part.export` сработает |
-| **Удалить tmp** | да (`session_workspace` + `safe_delete_path` в `finally`) |
-| Закрыть документ в КОМПАС | пока нет (модель остаётся открытой) |
-| Нативный `.m3d` | ещё нет |
+## Бот
 
 `.env`:
 ```
 TELEGRAM_BOT_TOKEN=
 GROQ_API_KEY=
-GEMINI_API_KEY=          # без него фото не распознает
+GEMINI_API_KEY=
 ```
 
 ```powershell
+# КОМПАС открыт
 python -m bot
 ```
+
+Проверки в TG:
+1. `/start`
+2. Текст: `Втулка наружный 40 внутренний 20 длина 50`
+3. Фото чертежа (нужен Gemini) → кнопки → сборка
+4. Должны прийти `part.m3d` и/или `part.step`, локальный `.compas_tmp` пустеет
+
+Если файл не пришёл — модель всё равно может быть в КОМПАС; пришли текст ошибки из чата.
