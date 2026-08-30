@@ -1,6 +1,5 @@
 """
-Telegram-бот на ПК (телефон — только клиент TG).
-КОМПАС + python -m bot на одном Windows-ПК.
+Telegram-бот: понятные сообщения пользователю, техника — в лог.
 """
 
 from __future__ import annotations
@@ -34,16 +33,14 @@ _GREETING = re.compile(
 
 def _looks_like_part_task(text: str) -> bool:
     t = text.strip()
-    if len(t) < 6:
-        return False
-    if _GREETING.match(t):
+    if len(t) < 6 or _GREETING.match(t):
         return False
     if re.search(r"\d", t):
         return True
     keys = (
         "втулк", "фланец", "плит", "вал", "отверст", "цилиндр",
         "куб", "пластин", "детал", "диаметр", "толщин", "длин",
-        "крышк", "бобыш", "stadium",
+        "крышк", "бобыш", "stadium", "карман", "фаск", "скругл",
     )
     low = t.lower()
     return any(k in low for k in keys)
@@ -94,14 +91,16 @@ def main() -> None:
 
     async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text(
-            "compas-бот (работает на ПК, где открыт КОМПАС)\n\n"
-            "Текст с размерами или фото чертежа.\n"
-            "Пример: Втулка наружный 40 внутренний 20 длина 50"
+            "Агент КОМПАС-3D\n\n"
+            "• Текст с размерами, или\n"
+            "• Фото чертежа\n\n"
+            "Пример: Втулка наружный 40 внутренний 20 длина 50\n"
+            "На ПК должен быть открыт КОМПАС."
         )
 
     async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         uid = update.effective_user.id
-        await update.message.reply_text("Распознаю чертёж…")
+        await update.message.reply_text("Смотрю чертёж…")
         photo = update.message.photo[-1]
         tg_file = await photo.get_file()
 
@@ -117,7 +116,10 @@ def main() -> None:
             try:
                 spec = await asyncio.to_thread(_vision)
             except Exception as e:
-                await update.message.reply_text(f"Vision: {e}")
+                log.exception("vision")
+                await update.message.reply_text(
+                    "Не удалось разобрать чертёж. Пришлите размеры текстом."
+                )
                 return
             _pending_specs[uid] = spec
 
@@ -125,8 +127,8 @@ def main() -> None:
         kb = InlineKeyboardMarkup(
             [
                 [
-                    InlineKeyboardButton("✅ Верно, строить", callback_data="spec_ok"),
-                    InlineKeyboardButton("❌ Нет", callback_data="spec_no"),
+                    InlineKeyboardButton("Строить", callback_data="spec_ok"),
+                    InlineKeyboardButton("Неверно", callback_data="spec_no"),
                 ]
             ]
         )
@@ -137,12 +139,14 @@ def main() -> None:
         try:
             await q.answer()
         except Exception as e:
-            log.warning("answer callback: %s", e)
+            log.warning("callback answer: %s", e)
         uid = update.effective_user.id
         if q.data == "spec_no":
             _pending_specs.pop(uid, None)
             try:
-                await q.edit_message_text("Ок, другое фото или текст.")
+                await q.edit_message_text(
+                    "Ок. Пришлите другое фото или размеры текстом."
+                )
             except Exception:
                 pass
             return
@@ -151,13 +155,13 @@ def main() -> None:
         spec = _pending_specs.pop(uid, None)
         if not spec:
             try:
-                await q.edit_message_text("Спека устарела — фото снова.")
+                await q.edit_message_text("Сессия устарела — пришлите фото снова.")
             except Exception:
                 pass
             return
         task = spec_to_task_text(spec)
         try:
-            await q.edit_message_text("В очереди…\n" + task[:500])
+            await q.edit_message_text("В очереди на построение…")
         except Exception:
             pass
         await _enqueue_build(update, context, task, reply_to=q.message)
@@ -180,9 +184,13 @@ def main() -> None:
                     with open(path, "rb") as f:
                         await msg.reply_document(document=f, filename=path.name)
                 except Exception as e:
-                    await msg.reply_text(f"Не отправил {path.name}: {e}")
+                    log.warning("send file: %s", e)
+                    await msg.reply_text(f"Файл {path.name} не отправился.")
         except Exception as ex:
-            await msg.reply_text(f"Экспорт: {ex}")
+            log.warning("export: %s", ex)
+            await msg.reply_text(
+                "Модель в КОМПАС есть, файл экспорта не удалось отправить."
+            )
         finally:
             safe_delete_path(out_dir)
 
@@ -191,23 +199,34 @@ def main() -> None:
         job = await build_queue.submit(uid, task)
         msg = reply_to or update.message
         try:
-            await msg.reply_text(f"Очередь ~{job.position}. Строю…")
+            await msg.reply_text("Строю в КОМПАС…")
         except Exception:
             pass
         try:
             result = await asyncio.wait_for(job.future, timeout=480)
-            code = result.get("code", "")
-            preview = code if len(code) < 2500 else code[:2500] + "\n..."
+            code = result.get("code") or ""
+            n_lines = code.count("\n") + 1 if code else 0
             await msg.reply_text(
-                "Готово.\n```python\n" + preview + "\n```",
-                parse_mode="Markdown",
+                f"Готово. Модель в КОМПАС.\n"
+                f"(скрипт ~{n_lines} строк — смотрите дерево построения в CAD)"
             )
+            # полный код только в лог, не спамим TG
+            log.info("build ok user=%s code_lines=%s", uid, n_lines)
             await _send_exports(msg, uid)
         except Exception as e:
+            log.exception("build fail")
+            # коротко пользователю
+            brief = str(e)
+            if len(brief) > 280:
+                brief = brief[:280] + "…"
             try:
-                await msg.reply_text(f"Ошибка: {e}")
+                await msg.reply_text(
+                    "Не удалось построить.\n"
+                    f"{brief}\n\n"
+                    "Попробуйте упростить описание или указать размеры текстом."
+                )
             except Exception:
-                log.exception("notify error")
+                pass
 
     async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         task = (update.message.text or "").strip()
@@ -215,7 +234,7 @@ def main() -> None:
             return
         low = task.lower()
         if (
-            low in ("да", "yes", "ок", "ok", "верно")
+            low in ("да", "yes", "ок", "ok", "верно", "строить")
             and update.effective_user.id in _pending_specs
         ):
             spec = _pending_specs.pop(update.effective_user.id)
@@ -223,14 +242,14 @@ def main() -> None:
             return
         if not _looks_like_part_task(task):
             await update.message.reply_text(
-                "Нужно описание с размерами, напр.:\n"
-                "Втулка наружный 40 внутренний 20 длина 50"
+                "Нужно описание детали с размерами или фото чертежа.\n"
+                "Например: Втулка наружный 40 внутренний 20 длина 50"
             )
             return
         await _enqueue_build(update, context, task)
 
     async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
-        log.exception("handler error: %s", context.error)
+        log.exception("handler: %s", context.error)
 
     request = HTTPXRequest(
         connection_pool_size=8,

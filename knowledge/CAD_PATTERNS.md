@@ -1,28 +1,13 @@
-# Память паттернов CAD (core)
+# Дерево построения (сложная деталь)
 
-## Порядок
-1) Базовое тело (extrude) 2) Бобышки / ступени (ещё extrude) 3) Глухие карманы / pockets (cut depth=...) 4) Отверстия / pattern_holes 5) fillet/chamfer
+1. **База** — контур + `extrude`
+2. **Ступени / бобышки** — новый sketch + `extrude` (не в том же эскизе, что вырез)
+3. **Карманы** — sketch + `cut(depth=…)` глухой; сквозное — `through_all=True`
+4. **Отверстия** — `hole` / `pattern_holes_*`
+5. **Зенковка** — сначала мелкий вырез/hole большего Ø, потом основной hole
+6. **Кромки** — `fillet` / `chamfer` в конце
 
-## Сложная крышка / flange
-Для сложной крышки задаётся последовательность: базовый контур → extrude(base) → boss(центральный круг/оболочка) → blind pocket или вырез на заданную глубину → отверстия по PCD/матрице. Не делать все операции в одном эскизе; иначе KOMPAS не группирует корректно.
+Плоскости: `sketch("xy"|"xz"|"yz")`.
 
-## Диаметры
-Текст ØD / D20 → `circle(..., D/2)` или `hole(..., diameter=D)`.
-
-## Stadium / облонг
-`sk.rounded_rect(-L/2, -W/2, L, W, radius=min(L,W)/2)` или `sk.stadium(...)`.
-Не polygon.
-
-## Втулка
-Наружный круг → extrude(L) → hole(внутренний).
-
-## Фланец круглый
-circle → extrude(t) → hole центр → pattern_holes_circular(pcd, count, diameter).
-
-## Плита
-rectangle → extrude → pattern_holes_rect или hole в углах.
-
-## Ошибки v23
-- Не ksArcByPoint; только ksArcByAngle (уже в core).
-- Не нулевые линии при R=W/2.
-- GetDefinition / BeginEdit без ().
+Stadium: `rounded_rect` / `stadium`, не ломаная.
+Ø → радиус = D/2 для circle, diameter= для hole.
