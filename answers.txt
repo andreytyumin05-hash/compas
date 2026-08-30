@@ -1,23 +1,9 @@
-$ python -m agent.list_models
-=== Ключи ===
-  GEMINI_API_KEY: задан
-  GROQ_API_KEY: задан
-  OPENROUTER_API_KEY: нет
+(venv) PS D:\учеба\ML_study\compas> python -m core.smoke_rounded
+smoke_rounded — КОМПАС открыт
+FAIL: ksLineSeg=0
+(venv) PS D:\учеба\ML_study\compas> python -m agent.build "Крышка length=116 width=80 thickness=13 outer_radius=40 boss_height=18 inner_radius=30"
+Задача: Крышка length=116 width=80 thickness=13 outer_radius=40 boss_height=18 inner_radius=30
 
-=== Рекомендуемый .env ===
-  LLM_PROVIDER=cascade
-  GEMINI_API_KEY=...   # код + vision, отдельная квота
-  GROQ_API_KEY=...     # запас
-  # OPENROUTER_API_KEY=...  # опционально free
-
-=== Groq models (7) ===
-  allam-2-7b
-  groq/compound
-  groq/compound-mini
-  openai/gpt-oss-120b [strong]
-  openai/gpt-oss-20b [light]
-  qwen/qwen3.6-27b
-  qwen/qwen3.8-27b [strong]
 D:\учеба\ML_study\compas\agent\llm.py:122: FutureWarning: 
 
 All support for the `google.generativeai` package has ended. It will no longer be receiving 
@@ -27,57 +13,4 @@ See README for more details:
 https://github.com/google-gemini/deprecated-generative-ai-python/blob/main/README.md
 
   import google.generativeai as genai
-
-=== Cascade order ===
-  → gemini:gemini-3.6-flash
-  → groq:openai/gpt-oss-20b
-  → groq:qwen/qwen3.6-27b
-(venv) 
-
-Ошибка: КОМПАС: rounded_rect: (-2147352561, 'Параметр является обязательным.', None, None)
-
-(venv) PS D:\учеба\ML_study\compas> python -m bot
-Bot polling… (КОМПАС на этом ПК)
-INFO:httpx:HTTP Request: POST https://api.telegram.org/bot8976285082:AAFmJbtek7CPqHJOZoWSsuzx4Xxa8TdEdck/getMe "HTTP/1.1 200 OK"
-INFO:httpx:HTTP Request: POST https://api.telegram.org/bot8976285082:AAFmJbtek7CPqHJOZoWSsuzx4Xxa8TdEdck/deleteWebhook "HTTP/1.1 200 OK"
-INFO:telegram.ext.Application:Application started
-INFO:httpx:HTTP Request: POST https://api.telegram.org/bot8976285082:AAFmJbtek7CPqHJOZoWSsuzx4Xxa8TdEdck/getUpdates "HTTP/1.1 200 OK"
-INFO:httpx:HTTP Request: POST https://api.telegram.org/bot8976285082:AAFmJbtek7CPqHJOZoWSsuzx4Xxa8TdEdck/sendMessage "HTTP/1.1 200 OK"
-INFO:httpx:HTTP Request: POST https://api.telegram.org/bot8976285082:AAFmJbtek7CPqHJOZoWSsuzx4Xxa8TdEdck/getFile "HTTP/1.1 200 OK"
-INFO:httpx:HTTP Request: GET https://api.telegram.org/file/bot8976285082%3AAAFmJbtek7CPqHJOZoWSsuzx4Xxa8TdEdck/photos/file_0.jpg "HTTP/1.1 200 OK"
-D:\учеба\ML_study\compas\agent\vision.py:72: FutureWarning: 
-
-All support for the `google.generativeai` package has ended. It will no longer be receiving 
-updates or bug fixes. Please switch to the `google.genai` package as soon as possible.
-See README for more details:
-
-https://github.com/google-gemini/deprecated-generative-ai-python/blob/main/README.md
-
-  import google.generativeai as genai
-INFO:httpx:HTTP Request: POST https://api.telegram.org/bot8976285082:AAFmJbtek7CPqHJOZoWSsuzx4Xxa8TdEdck/getUpdates "HTTP/1.1 200 OK"
-INFO:compas.bot:session cleaned user=1305887491 path=D:\учеба\ML_study\compas\.compas_tmp\1305887491_c26da3e6ef8e
-INFO:httpx:HTTP Request: POST https://api.telegram.org/bot8976285082:AAFmJbtek7CPqHJOZoWSsuzx4Xxa8TdEdck/sendMessage "HTTP/1.1 200 OK"
-INFO:httpx:HTTP Request: POST https://api.telegram.org/bot8976285082:AAFmJbtek7CPqHJOZoWSsuzx4Xxa8TdEdck/getUpdates "HTTP/1.1 200 OK"
-INFO:httpx:HTTP Request: POST https://api.telegram.org/bot8976285082:AAFmJbtek7CPqHJOZoWSsuzx4Xxa8TdEdck/answerCallbackQuery "HTTP/1.1 200 OK"
-INFO:httpx:HTTP Request: POST https://api.telegram.org/bot8976285082:AAFmJbtek7CPqHJOZoWSsuzx4Xxa8TdEdck/editMessageText "HTTP/1.1 200 OK"
-INFO:httpx:HTTP Request: POST https://api.telegram.org/bot8976285082:AAFmJbtek7CPqHJOZoWSsuzx4Xxa8TdEdck/sendMessage "HTTP/1.1 200 OK"
-INFO:httpx:HTTP Request: GET https://api.groq.com/openai/v1/models "HTTP/1.1 200 OK"
-INFO:compas.llm:Cascade backends: ['gemini:gemini-3.6-flash', 'groq:openai/gpt-oss-20b', 'groq:qwen/qwen3.6-27b']
-INFO:compas.llm:LLM try gemini:gemini-3.6-flash
-INFO:httpx:HTTP Request: POST https://api.telegram.org/bot8976285082:AAFmJbtek7CPqHJOZoWSsuzx4Xxa8TdEdck/getUpdates "HTTP/1.1 200 OK"
-INFO:httpx:HTTP Request: POST https://api.telegram.org/bot8976285082:AAFmJbtek7CPqHJOZoWSsuzx4Xxa8TdEdck/getUpdates "HTTP/1.1 200 OK"
-INFO:compas.llm:LLM try gemini:gemini-3.6-flash
-INFO:httpx:HTTP Request: POST https://api.telegram.org/bot8976285082:AAFmJbtek7CPqHJOZoWSsuzx4Xxa8TdEdck/getUpdates "HTTP/1.1 200 OK"
-INFO:compas.llm:LLM try gemini:gemini-3.6-flash
-INFO:httpx:HTTP Request: POST https://api.telegram.org/bot8976285082:AAFmJbtek7CPqHJOZoWSsuzx4Xxa8TdEdck/getUpdates "HTTP/1.1 200 OK"
-INFO:httpx:HTTP Request: POST https://api.telegram.org/bot8976285082:AAFmJbtek7CPqHJOZoWSsuzx4Xxa8TdEdck/sendMessage "HTTP/1.1 200 OK"
-INFO:httpx:HTTP Request: POST https://api.telegram.org/bot8976285082:AAFmJbtek7CPqHJOZoWSsuzx4Xxa8TdEdck/getUpdates "HTTP/1.1 200 OK"
-INFO:httpx:HTTP Request: POST https://api.telegram.org/bot8976285082:AAFmJbtek7CPqHJOZoWSsuzx4Xxa8TdEdck/getUpdates "HTTP/1.1 200 OK"
-INFO:httpx:HTTP Request: POST https://api.telegram.org/bot8976285082:AAFmJbtek7CPqHJOZoWSsuzx4Xxa8TdEdck/getUpdates "HTTP/1.1 200 OK"
-INFO:httpx:HTTP Request: POST https://api.telegram.org/bot8976285082:AAFmJbtek7CPqHJOZoWSsuzx4Xxa8TdEdck/getUpdates "HTTP/1.1 200 OK"
-INFO:httpx:HTTP Request: POST https://api.telegram.org/bot8976285082:AAFmJbtek7CPqHJOZoWSsuzx4Xxa8TdEdck/getUpdates "HTTP/1.1 200 OK"
-INFO:telegram.ext.Application:Application is stopping. This might take a moment.
-INFO:telegram.ext.Application:Application.stop() complete
-ERROR:asyncio:Task was destroyed but it is pending!
-task: <Task pending name='Task-5' coro=<BuildQueue.start.<locals>._loop() running at D:\учеба\ML_study\compas\bot\queue.py:36> wait_for=<Future pending cb=[Task.task_wakeup()]>>
-D:\учеба\ML_study\compas\bot\queue.py:42: RuntimeWarning: coroutine 'Queue.get' was never awaited
+КОМПАС: ksLineSeg=0
