@@ -1,5 +1,6 @@
 """
-Telegram-бот: текст / фото → очередь → КОМПАС → m3d+step → удаление tmp.
+Telegram-бот на ПК (телефон — только клиент TG).
+КОМПАС + python -m bot на одном Windows-ПК.
 """
 
 from __future__ import annotations
@@ -26,25 +27,23 @@ _pending_specs: dict[int, dict] = {}
 
 _GREETING = re.compile(
     r"^(привет|здравствуй|здравствуйте|hello|hi|hey|добрый\s+(день|вечер|утро)|"
-    r"как дела|что умеешь|/start)\s*[!.]?$",
+    r"как дела|что умеешь)\s*[!.]?$",
     re.I,
 )
 
 
 def _looks_like_part_task(text: str) -> bool:
-    """Отсечь болтовню: нужна хоть намёк на геометрию/деталь."""
     t = text.strip()
-    if len(t) < 8:
+    if len(t) < 6:
         return False
     if _GREETING.match(t):
         return False
-    # цифры или типичные слова
     if re.search(r"\d", t):
         return True
     keys = (
         "втулк", "фланец", "плит", "вал", "отверст", "цилиндр",
         "куб", "пластин", "детал", "диаметр", "толщин", "длин",
-        "фаск", "скругл", "паз", "бобыш", "кронштейн",
+        "крышк", "бобыш", "stadium",
     )
     low = t.lower()
     return any(k in low for k in keys)
@@ -53,7 +52,7 @@ def _looks_like_part_task(text: str) -> bool:
 def main() -> None:
     token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
     if not token:
-        print("Задайте TELEGRAM_BOT_TOKEN в .env")
+        print("TELEGRAM_BOT_TOKEN в .env")
         sys.exit(1)
 
     try:
@@ -66,6 +65,7 @@ def main() -> None:
             filters,
             ContextTypes,
         )
+        from telegram.request import HTTPXRequest
     except ImportError:
         print("pip install python-telegram-bot")
         sys.exit(1)
@@ -82,7 +82,7 @@ def main() -> None:
             return run_task(job.description)
 
         try:
-            code = await asyncio.wait_for(asyncio.to_thread(_build), timeout=300)
+            code = await asyncio.wait_for(asyncio.to_thread(_build), timeout=420)
             if not job.future.done():
                 job.future.set_result({"code": code, "ok": True})
         except Exception as e:
@@ -94,11 +94,9 @@ def main() -> None:
 
     async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text(
-            "compas-бот\n\n"
-            "Напишите описание детали с размерами, например:\n"
-            "Втулка наружный 40 внутренний 20 длина 50\n\n"
-            "Или пришлите фото чертежа (нужен GEMINI_API_KEY).\n"
-            "КОМПАС должен быть открыт на этом ПК."
+            "compas-бот (работает на ПК, где открыт КОМПАС)\n\n"
+            "Текст с размерами или фото чертежа.\n"
+            "Пример: Втулка наружный 40 внутренний 20 длина 50"
         )
 
     async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -119,15 +117,8 @@ def main() -> None:
             try:
                 spec = await asyncio.to_thread(_vision)
             except Exception as e:
-                await update.message.reply_text(
-                    f"Не распознал: {e}\n\n"
-                    "Проверьте в .env:\n"
-                    "GEMINI_API_KEY=...\n"
-                    "VISION_MODEL=gemini-2.0-flash\n"
-                    "(LLM_MODEL для Groq на vision не влияет)"
-                )
+                await update.message.reply_text(f"Vision: {e}")
                 return
-
             _pending_specs[uid] = spec
 
         text = format_spec_for_user(spec)
@@ -143,20 +134,32 @@ def main() -> None:
 
     async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         q = update.callback_query
-        await q.answer()
+        try:
+            await q.answer()
+        except Exception as e:
+            log.warning("answer callback: %s", e)
         uid = update.effective_user.id
         if q.data == "spec_no":
             _pending_specs.pop(uid, None)
-            await q.edit_message_text("Ок, другое фото или текст.")
+            try:
+                await q.edit_message_text("Ок, другое фото или текст.")
+            except Exception:
+                pass
             return
         if q.data != "spec_ok":
             return
         spec = _pending_specs.pop(uid, None)
         if not spec:
-            await q.edit_message_text("Спека устарела — фото снова.")
+            try:
+                await q.edit_message_text("Спека устарела — фото снова.")
+            except Exception:
+                pass
             return
         task = spec_to_task_text(spec)
-        await q.edit_message_text("В очереди…\n" + task[:500])
+        try:
+            await q.edit_message_text("В очереди…\n" + task[:500])
+        except Exception:
+            pass
         await _enqueue_build(update, context, task, reply_to=q.message)
 
     async def _send_exports(msg, uid: int) -> None:
@@ -187,9 +190,12 @@ def main() -> None:
         uid = update.effective_user.id
         job = await build_queue.submit(uid, task)
         msg = reply_to or update.message
-        await msg.reply_text(f"Очередь ~{job.position}. Строю…")
         try:
-            result = await asyncio.wait_for(job.future, timeout=360)
+            await msg.reply_text(f"Очередь ~{job.position}. Строю…")
+        except Exception:
+            pass
+        try:
+            result = await asyncio.wait_for(job.future, timeout=480)
             code = result.get("code", "")
             preview = code if len(code) < 2500 else code[:2500] + "\n..."
             await msg.reply_text(
@@ -198,7 +204,10 @@ def main() -> None:
             )
             await _send_exports(msg, uid)
         except Exception as e:
-            await msg.reply_text(f"Ошибка: {e}")
+            try:
+                await msg.reply_text(f"Ошибка: {e}")
+            except Exception:
+                log.exception("notify error")
 
     async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         task = (update.message.text or "").strip()
@@ -214,19 +223,35 @@ def main() -> None:
             return
         if not _looks_like_part_task(task):
             await update.message.reply_text(
-                "Напишите задачу на деталь с размерами, например:\n"
-                "Втулка наружный 40 внутренний 20 длина 50\n\n"
-                "Или пришлите фото чертежа."
+                "Нужно описание с размерами, напр.:\n"
+                "Втулка наружный 40 внутренний 20 длина 50"
             )
             return
         await _enqueue_build(update, context, task)
 
-    app = Application.builder().token(token).post_init(post_init).build()
+    async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+        log.exception("handler error: %s", context.error)
+
+    request = HTTPXRequest(
+        connection_pool_size=8,
+        connect_timeout=30.0,
+        read_timeout=60.0,
+        write_timeout=60.0,
+        pool_timeout=30.0,
+    )
+    app = (
+        Application.builder()
+        .token(token)
+        .request(request)
+        .post_init(post_init)
+        .build()
+    )
+    app.add_error_handler(on_error)
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(on_callback))
     app.add_handler(MessageHandler(filters.PHOTO, on_photo))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
-    print("Bot polling…")
+    print("Bot polling… (КОМПАС на этом ПК)")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 

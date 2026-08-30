@@ -1,4 +1,4 @@
-"""Генерация кода: python -m agent.runner "описание"""
+"""Генерация: шаблон → LLM → проверка."""
 
 from __future__ import annotations
 
@@ -8,14 +8,24 @@ from typing import List, Optional, Tuple
 from .code_fix import normalize_code, must_fix_holes, semantic_warnings
 from .llm import get_llm_client, BaseLLM
 from .prompts import get_system_prompt, build_user_prompt, build_repair_prompt
+from .templates import try_template
 from .validate import validate_generated_code
 
 
 class Agent:
     def __init__(self, llm: Optional[BaseLLM] = None):
-        self.llm = llm or get_llm_client()
+        self._llm = llm
 
-    def generate(self, task: str, temperature: float = 0.15) -> str:
+    @property
+    def llm(self) -> BaseLLM:
+        if self._llm is None:
+            self._llm = get_llm_client()
+        return self._llm
+
+    def generate(self, task: str, temperature: float = 0.1) -> str:
+        tmpl = try_template(task)
+        if tmpl:
+            return normalize_code(tmpl)
         messages = [
             {"role": "system", "content": get_system_prompt()},
             {"role": "user", "content": build_user_prompt(task)},
@@ -24,8 +34,16 @@ class Agent:
         return normalize_code(self._extract_code(raw))
 
     def generate_checked(
-        self, task: str, temperature: float = 0.15, max_retries: int = 3
+        self, task: str, temperature: float = 0.1, max_retries: int = 1
     ) -> Tuple[str, List[str]]:
+        # 1) шаблон — без API, без 429
+        tmpl = try_template(task)
+        if tmpl:
+            code = normalize_code(tmpl)
+            ok, errors = validate_generated_code(code)
+            if ok and not must_fix_holes(code):
+                return code, []
+
         last_raw = ""
         code = ""
         errors: List[str] = ["пустой код"]
@@ -36,52 +54,44 @@ class Agent:
                     {"role": "system", "content": get_system_prompt()},
                     {"role": "user", "content": build_user_prompt(task)},
                 ]
-                temp = temperature
-            elif not code.strip():
-                messages = [
-                    {"role": "system", "content": get_system_prompt()},
-                    {
-                        "role": "user",
-                        "content": (
-                            build_user_prompt(task)
-                            + "\n\nКРИТИЧНО: предыдущий ответ был пустым или без кода. "
-                            "Ответь ТОЛЬКО одним блоком:\n```python\nfrom core import Part\n...\n```\n"
-                            "Без рассуждений до и после блока."
-                        ),
-                    },
-                ]
-                temp = 0.1
             else:
                 messages = [
                     {"role": "system", "content": get_system_prompt()},
                     {
                         "role": "user",
-                        "content": build_repair_prompt(task, code, errors),
+                        "content": (
+                            "ONLY a python code block. No English. Start with from core import Part.\n\n"
+                            + build_repair_prompt(task, code, errors)
+                        ),
                     },
                 ]
-                temp = 0.1
-
-            last_raw = self.llm.chat(messages, temperature=temp) or ""
+            try:
+                last_raw = self.llm.chat(messages, temperature=0.1) or ""
+            except Exception as e:
+                errors = [f"LLM: {e}"]
+                continue
             code = normalize_code(self._extract_code(last_raw))
             ok, errors = validate_generated_code(code)
             if ok and must_fix_holes(code):
                 ok = False
-                errors = list(errors) + [
-                    "отверстия нарисованы, но нет part.cut / hole"
-                ]
+                errors = list(errors) + ["отверстия без cut/hole"]
             if ok:
                 return code, []
 
         if not code.strip():
-            preview = (last_raw or "")[:400].replace("\n", " ")
+            # последний шанс — шаблон ещё раз
+            tmpl = try_template(task)
+            if tmpl:
+                return normalize_code(tmpl), []
+            preview = (last_raw or "")[:300].replace("\n", " ")
             return "", [
-                "пустой код — модель не вернула Python. "
-                f"Фрагмент ответа LLM: {preview!r}. "
-                "Проверь LLM_MODEL на Groq (list_models) или смени модель."
+                "пустой/проза от модели. Фрагмент: "
+                + repr(preview)
+                + ". Смени LLM_MODEL или опиши деталь проще (втулка/крышка с числами)."
             ]
         return code, errors
 
-    def generate_raw(self, task: str, temperature: float = 0.15) -> str:
+    def generate_raw(self, task: str, temperature: float = 0.1) -> str:
         messages = [
             {"role": "system", "content": get_system_prompt()},
             {"role": "user", "content": build_user_prompt(task)},
@@ -93,32 +103,32 @@ class Agent:
         if not text or not str(text).strip():
             return ""
         text = str(text)
-
-        # убрать think-блоки (некоторые модели)
         text = re.sub(r"<think>[\s\S]*?</think>", "", text, flags=re.I)
         text = re.sub(r"<thinking>[\s\S]*?</thinking>", "", text, flags=re.I)
 
-        pattern = r"```(?:python)?\s*([\s\S]*?)```"
-        matches = re.findall(pattern, text, flags=re.I)
+        matches = re.findall(r"```(?:python)?\s*([\s\S]*?)```", text, flags=re.I)
         if matches:
-            # последний python-блок, предпочтительно с Part
             for block in reversed(matches):
                 if "Part" in block or "from core" in block:
                     return block.strip()
             return matches[-1].strip()
 
-        # без markdown: от from core import Part до конца
-        m = re.search(
-            r"(from\s+core\s+import\s+Part[\s\S]+)", text, flags=re.I
-        )
+        m = re.search(r"(from\s+core\s+import\s+Part[\s\S]+)", text, flags=re.I)
         if m:
-            return m.group(1).strip()
+            body = m.group(1).strip()
+            # обрезать хвост после part.update()
+            um = re.search(
+                r"(from\s+core\s+import\s+Part[\s\S]*?part\.update\s*\(\s*\))",
+                body,
+                flags=re.I,
+            )
+            if um:
+                return um.group(1).strip()
+            return body
 
-        # сырой текст, если похож на код
-        if "Part.create" in text or "part.extrude" in text:
+        if "Part.create" in text:
             return text.strip()
-
-        return text.strip()
+        return ""
 
 
 def main() -> None:
@@ -127,33 +137,23 @@ def main() -> None:
     from rich.syntax import Syntax
 
     console = Console()
-
     if len(sys.argv) < 2:
-        console.print('[yellow]Использование:[/] python -m agent.runner "описание детали"')
+        console.print('[yellow]python -m agent.runner "описание"[/]')
         sys.exit(1)
-
     task = " ".join(sys.argv[1:])
     console.print(f"[bold]Задача:[/] {task}\n")
-
     try:
         agent = Agent()
         code, errors = agent.generate_checked(task)
         if code:
-            console.print("[green]Сгенерированный код:[/]\n")
             console.print(Syntax(code, "python", theme="monokai", line_numbers=True))
-        warns = semantic_warnings(code)
         if errors:
-            console.print("\n[red]Статическая проверка не пройдена:[/]")
             for e in errors:
-                console.print(f"  • {e}")
+                console.print(f"[red]• {e}[/]")
             sys.exit(2)
-        if warns:
-            console.print("\n[yellow]Замечания:[/]")
-            for w in warns:
-                console.print(f"  • {w}")
-        console.print("\n[green]Статическая проверка: OK[/]")
+        console.print("[green]OK[/]")
     except Exception as e:
-        console.print(f"[red]Ошибка:[/] {e}")
+        console.print(f"[red]{e}[/]")
         sys.exit(1)
 
 

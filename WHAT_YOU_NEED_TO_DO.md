@@ -1,30 +1,23 @@
-# После чистки agent-v2-vision
+# Важно: бот на телефоне — ОК, КОМПАС на ПК
+
+`python -m bot` крутится **на том же Windows**, где открыт КОМПАС.  
+Телефон только шлёт сообщения в Telegram — это нормально.
+
+## Почему «английская проза»
+
+Модель Groq (особенно после 429 Too Many Requests) отвечала текстом, не кодом.  
+Теперь для **крышки/stadium/втулки** код берётся из **шаблона без LLM** — стабильнее.
 
 ```powershell
 git pull origin agent-v2-vision
+# Ctrl+C бот → снова:
+python -m bot
 ```
 
-## Что починено
-1. **`rounded_rect`** — настоящие **дуги** (не ломаная из отрезков).
-2. **`sk.stadium(x,y,L,W)`** — овал.
-3. Validate режет **английскую прозу** модели в «коде».
-4. Knowledge + prompts под stadium/крышку.
-5. `list_models` советует **gpt-oss / qwen**, не allam/orpheus.
-
-## .env для кода (Groq)
-```env
-LLM_MODEL=openai/gpt-oss-120b
-# или openai/gpt-oss-20b / qwen/qwen3.8-27b
-```
-`python -m agent.list_models` — сверь id.
-
-## Проверки
+Проверка без TG:
 ```powershell
-python -m agent.build "Крышка 116x80 толщина 13, rounded R40, бобышка R30 высота 18"
-# в КОМПАС края базы должны быть гладкими дугами
+python -m agent.runner "Крышка length=116 width=80 thickness=13 outer_radius=40 boss_height=18 inner_radius=30"
+python -m agent.build "Втулка наружный 40 внутренний 20 длина 50"
 ```
 
-Бот: перезапуск `python -m bot`.
-
-## Не коммить
-`answers.txt` очищен; ключи/токены в answers не класть.
+Если Groq 429 — подожди 1–2 мин или опирайся на шаблоны (типовые детали).

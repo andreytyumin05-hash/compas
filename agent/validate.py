@@ -1,4 +1,4 @@
-"""Статическая проверка сгенерированного кода."""
+"""Статическая проверка кода."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ _NEG_NUM = re.compile(
     re.I,
 )
 _ZERO_DEPTH = re.compile(r"extrude\s*\([^)]*depth\s*=\s*0\s*[,)]", re.I)
-# английская проза / musings моделей в «коде»
+# проза только если нет валидного Part.create (иначе extract мог вырезать код)
 _PROSE = re.compile(
     r"\b(we need|the user|produce only|corrected code|here is|let's|i will)\b",
     re.I,
@@ -25,10 +25,9 @@ def validate_generated_code(code: str) -> Tuple[bool, List[str]]:
     if not code or not code.strip():
         return False, ["пустой код"]
 
-    if _PROSE.search(code):
-        return False, [
-            "в «коде» английская проза модели — не Python. Нужен только блок from core import Part"
-        ]
+    # если есть нормальный импорт и create — прозу в хвосте игнорируем после extract
+    if _PROSE.search(code) and "Part.create" not in code:
+        return False, ["английская проза вместо Python"]
 
     try:
         ast.parse(code)
@@ -36,7 +35,7 @@ def validate_generated_code(code: str) -> Tuple[bool, List[str]]:
         return False, [f"синтаксис: {e}"]
 
     has_import = False
-    has_create = False
+    has_create = "Part.create" in code
 
     for line in code.splitlines():
         s = line.strip()
@@ -48,9 +47,6 @@ def validate_generated_code(code: str) -> Tuple[bool, List[str]]:
             errors.append(f"запрещённый from: {s}")
         if _ALLOWED_IMPORT.match(line):
             has_import = True
-
-    if "Part.create" in code:
-        has_create = True
 
     if not has_import:
         errors.append("нужен: from core import Part")
@@ -64,6 +60,6 @@ def validate_generated_code(code: str) -> Tuple[bool, List[str]]:
     if _NEG_NUM.search(code):
         errors.append("отрицательный размер")
     if _ZERO_DEPTH.search(code):
-        errors.append("extrude с depth=0")
+        errors.append("extrude depth=0")
 
     return (len(errors) == 0, errors)
