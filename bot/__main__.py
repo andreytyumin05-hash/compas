@@ -1,9 +1,12 @@
 """
-Telegram-бот: текст или фото чертежа → подтверждение → очередь → КОМПАС → файл.
+Telegram-бот: текст или фото → (vision) → подтверждение → очередь → КОМПАС → файл → удаление tmp.
 
   TELEGRAM_BOT_TOKEN=...
-  GEMINI_API_KEY=...   # для vision
+  GROQ_API_KEY=...          # генерация кода
+  GEMINI_API_KEY=...        # vision по фото (обязательно для картинок)
   python -m bot
+
+КОМПАС должен быть открыт на ЭТОМ же ПК (COM не удалённый).
 """
 
 from __future__ import annotations
@@ -25,7 +28,6 @@ load_dotenv(_ROOT / ".env")
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("compas.bot")
 
-# user_id -> pending spec dict
 _pending_specs: dict[int, dict] = {}
 
 
@@ -52,6 +54,7 @@ def main() -> None:
     from agent.schema import format_spec_for_user, spec_to_task_text
     from bot.queue import build_queue, Job
     from bot.sessions import session_workspace
+    from core.export import session_dir, safe_delete_path
 
     async def worker(job: Job) -> None:
         def _build() -> str:
@@ -73,9 +76,10 @@ def main() -> None:
     async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text(
             "compas-бот\n\n"
-            "• текст: описание детали\n"
-            "• фото: чертёж → распознаю → подтвердите → строю в КОМПАС\n\n"
-            "КОМПАС должен быть открыт на этом ПК."
+            "• текст — описание детали\n"
+            "• фото чертежа — распознаю → кнопки «верно/нет» → строю\n"
+            "• после сборки пришлю код и файл (STEP), локальный tmp удалю\n\n"
+            "Нужны: КОМПАС на этом ПК, GROQ_API_KEY, для фото ещё GEMINI_API_KEY."
         )
 
     async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -96,11 +100,14 @@ def main() -> None:
             try:
                 spec = await asyncio.to_thread(_vision)
             except Exception as e:
-                await update.message.reply_text(f"Не удалось распознать: {e}")
+                await update.message.reply_text(
+                    f"Не удалось распознать: {e}\n"
+                    "Проверьте GEMINI_API_KEY в .env или пришлите размеры текстом."
+                )
                 return
 
-            # spec держим в памяти; файл рисунка удалится с ws
             _pending_specs[uid] = spec
+        # ws finally уже удалил drawing.jpg
 
         text = format_spec_for_user(spec)
         kb = InlineKeyboardMarkup(
@@ -119,24 +126,44 @@ def main() -> None:
         uid = update.effective_user.id
         if q.data == "spec_no":
             _pending_specs.pop(uid, None)
-            await q.edit_message_text("Ок, пришлите другое фото или текст с размерами.")
+            await q.edit_message_text("Ок, другое фото или текст с размерами.")
             return
         if q.data != "spec_ok":
             return
         spec = _pending_specs.pop(uid, None)
         if not spec:
-            await q.edit_message_text("Спецификация устарела — пришлите фото снова.")
+            await q.edit_message_text("Спека устарела — пришлите фото снова.")
             return
         task = spec_to_task_text(spec)
-        await q.edit_message_text("В очереди на построение…\n" + task[:500])
+        await q.edit_message_text("В очереди…\n" + task[:500])
         await _enqueue_build(update, context, task, reply_to=q.message)
+
+    async def _send_export(msg, uid: int) -> None:
+        out_dir = session_dir(str(uid))
+        try:
+
+            def _exp():
+                from core import Part
+
+                p = Part.from_active()
+                return p.export(out_dir / "part.step", fmt="step")
+
+            out = await asyncio.to_thread(_exp)
+            with open(out, "rb") as f:
+                await msg.reply_document(document=f, filename="part.step")
+        except Exception as ex:
+            await msg.reply_text(
+                f"Модель в КОМПАС есть; отправка файла не удалась: {ex}"
+            )
+        finally:
+            safe_delete_path(out_dir)
 
     async def _enqueue_build(update, context, task: str, reply_to=None) -> None:
         uid = update.effective_user.id
         job = await build_queue.submit(uid, task)
         msg = reply_to or update.message
         await msg.reply_text(
-            f"Позиция в очереди: ~{job.position}. Строю (один КОМПАС — по очереди)…"
+            f"Очередь ~{job.position}. Строю (один КОМПАС)…"
         )
         try:
             result = await asyncio.wait_for(job.future, timeout=360)
@@ -146,30 +173,7 @@ def main() -> None:
                 "Готово.\n```python\n" + preview + "\n```",
                 parse_mode="Markdown",
             )
-            # экспорт best-effort
-            try:
-
-                def _exp():
-                    from core import Part
-                    from bot.sessions import session_workspace as sw
-                    # already cleaned; new short session for file
-                    return None
-
-                # отдельная сессия под файл
-                from core import Part
-                from core.export import session_dir, safe_delete_path
-
-                out_dir = session_dir(str(uid))
-                try:
-                    p = Part.from_active()
-                    out = p.export(out_dir / "part.step", fmt="step")
-                    await msg.reply_document(document=open(out, "rb"), filename="part.step")
-                finally:
-                    safe_delete_path(out_dir)
-            except Exception as ex:
-                await msg.reply_text(
-                    f"Модель в КОМПАС готова; экспорт файла не удался: {ex}"
-                )
+            await _send_export(msg, uid)
         except Exception as e:
             await msg.reply_text(f"Ошибка построения: {e}")
 
@@ -177,7 +181,6 @@ def main() -> None:
         task = (update.message.text or "").strip()
         if not task:
             return
-        # если ждём правку спеки — можно расширить позже
         low = task.lower()
         if low in ("да", "yes", "ок", "ok", "верно") and update.effective_user.id in _pending_specs:
             spec = _pending_specs.pop(update.effective_user.id)
@@ -185,17 +188,12 @@ def main() -> None:
             return
         await _enqueue_build(update, context, task)
 
-    app = (
-        Application.builder()
-        .token(token)
-        .post_init(post_init)
-        .build()
-    )
+    app = Application.builder().token(token).post_init(post_init).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(on_callback))
     app.add_handler(MessageHandler(filters.PHOTO, on_photo))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
-    print("Bot polling… КОМПАС должен быть запущен.")
+    print("Bot polling… КОМПАС на этом ПК.")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 

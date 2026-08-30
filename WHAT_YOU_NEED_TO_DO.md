@@ -1,29 +1,36 @@
-# Что сделать сейчас (после фикса рёбер)
+# Сейчас
 
 ```powershell
-git checkout agent-v2-vision
 git pull origin agent-v2-vision
-```
-
-## Что было не так (по твоему answers)
-
-1. Рёбра брались из `EntityCollection(8)` — это **вершины** (`o3d_vertex`), не рёбра. Нужен **`o3d_edge = 7`**.
-2. Привязка шла через несуществующие `AddArrayOfEdges` — в API5 нужно **`definition.array().Clear()` + `array.Add(edge)`**.
-3. Размер фаски — через **`SetChamferParam(True, d, d)`**, не только `length1`.
-
-## Проверка
-
-КОМПАС открыт:
-
-```powershell
 python -m core.smoke_edges
 ```
 
-Ждём в логе:
-- `edge[i] src=EntityCollection(7)` (не 8)
-- для куба число рёбер около **12** (не 20)
-- `OK: cube` / `chamfer` / …
+## Фикс по последнему answers
 
-Полный stdout снова положи в `answers.txt` и закоммить/напиши в чат.
+`GetDefinition invoke: Член группы не найден` — снова вызывали **`()``** у property.  
+Как с `ActiveDocument3D`: писать `entity.GetDefinition` **без скобок**. То же для `First`/`Next` на коллекции рёбер.
 
-Если снова FAIL — пришли лог; следующий шаг: диагностика методов `definition` (dir) на живом объекте.
+Ждём `OK` в smoke_edges. Лог → `answers.txt`.
+
+## Бот (уже в ветке)
+
+| Возможность | Статус |
+|-------------|--------|
+| Текст → build | да |
+| **Фото чертежа** | да (`filters.PHOTO` → vision → кнопки верно/нет) |
+| Очередь (1 КОМПАС) | да |
+| Прислать **STEP** | да, если `Part.export` сработает |
+| **Удалить tmp** | да (`session_workspace` + `safe_delete_path` в `finally`) |
+| Закрыть документ в КОМПАС | пока нет (модель остаётся открытой) |
+| Нативный `.m3d` | ещё нет |
+
+`.env`:
+```
+TELEGRAM_BOT_TOKEN=
+GROQ_API_KEY=
+GEMINI_API_KEY=          # без него фото не распознает
+```
+
+```powershell
+python -m bot
+```
