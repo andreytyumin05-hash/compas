@@ -1,43 +1,125 @@
-(venv) PS D:\учеба\ML_study\compas> python -m agent.build "Фланец диаметр 80 толщина 10, центр отверстие 20, 4 отверстия 9 на диаметре 55"
-Задача: Фланец диаметр 80 толщина 10, центр отверстие 20, 4 отверстия 9 на диаметре 55
+(venv) PS D:\учеба\ML_study\compas> python -m core.smoke_edges
+smoke_edges — КОМПАС должен быть запущен
 
-Код:
+=== TEST: cube ===
+  edges collected: 20 filter=all
+  edge[0] src=EntityCollection(8) mid=None dir=None
+  edge[1] src=EntityCollection(8) mid=None dir=None
+  edge[2] src=EntityCollection(8) mid=None dir=None
+  edge[3] src=EntityCollection(8) mid=None dir=None
+  edge[4] src=EntityCollection(8) mid=None dir=None
+FAIL: cube: Не удалось привязать рёбра к операции фаски/скругления. COM-definition не принял AddArrayOfEdges/Edges.Add. Рёбер в наборе: 20. Детали: 
+Traceback (most recent call last):
+  File "D:\учеба\ML_study\compas\core\smoke_edges.py", line 26, in _run
+    fn()
+    ~~^^
+  File "D:\учеба\ML_study\compas\core\smoke_edges.py", line 47, in test_cube_fillet_all
+    part.fillet(edges, radius=2.0)
+    ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^
+  File "D:\учеба\ML_study\compas\core\part.py", line 254, in fillet
+    return apply_fillet(self, edges, r)
+  File "D:\учеба\ML_study\compas\core\part_advanced.py", line 211, in apply_fillet
+    _attach_edges(definition, edges)
+    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^
+  File "D:\учеба\ML_study\compas\core\part_advanced.py", line 128, in _attach_edges
+    raise KompasOperationError(
+    ...<3 lines>...
+    )
+core.exceptions.KompasOperationError: Не удалось привязать рёбра к операции фаски/скругления. COM-definition не принял AddArrayOfEdges/Edges.Add. Рёбер в наборе: 20. Детали: 
 
-   1 from core import Part                                                                                
-   2                                                                                                      
-   3 part = Part.create("Flange")                                                                         
-   4                                                                                                      
-   5 # 1. Основное тело фланца (Ø80, толщина 10)                                                          
-   6 with part.sketch("xy") as sk:                                                                        
-   7     sk.circle(0, 0, 40)                                                                              
-   8 part.extrude(sk, depth=10)                                                                           
-   9                                                                                                      
-  10 # 2. Центральное отверстие (Ø20)                                                                     
-  11 with part.sketch("xy") as sk:                                                                        
-  12     sk.circle(0, 0, 10)                                                                              
-  13 part.cut(sk, through_all=True)                                                                       
-  14                                                                                                      
-  15 # 3. Крепежные отверстия (4xØ9 на BCD 55)                                                            
-  16 # Радиус BCD = 55 / 2 = 27.5                                                                         
-  17 # Радиус отверстия = 9 / 2 = 4.5                                                                     
-  18 with part.sketch("xy") as sk:                                                                        
-  19     r_bcd = 27.5                                                                                     
-  20     r_hole = 4.5                                                                                     
-  21     # Расположение по осям (0, 90, 180, 270 градусов)                                                
-  22     sk.circle(r_bcd, 0, r_hole)                                                                      
-  23     sk.circle(0, r_bcd, r_hole)                                                                      
-  24     sk.circle(-r_bcd, 0, r_hole)                                                                     
-  25     sk.circle(0, -r_bcd, r_hole)                                                                     
-  26 part.cut(sk, through_all=True)                                                                       
-  27                                                                                                      
-  28 part.update()                                                                                        
-  29                                                                                                      
+=== TEST: chamfer ===
+  edges: 20
+FAIL: chamfer: Не задать размер фаски distance=1.5 (ни length1, ни SetChamferParam)
+Traceback (most recent call last):
+  File "D:\учеба\ML_study\compas\core\smoke_edges.py", line 26, in _run
+    fn()
+    ~~^^
+  File "D:\учеба\ML_study\compas\core\smoke_edges.py", line 61, in test_cube_chamfer_all
+    part.chamfer(edges, distance=1.5)
+    ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^
+  File "D:\учеба\ML_study\compas\core\part.py", line 228, in chamfer
+    return apply_chamfer(self, edges, d)
+  File "D:\учеба\ML_study\compas\core\part_advanced.py", line 181, in apply_chamfer
+    _set_chamfer_size(definition, distance)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\учеба\ML_study\compas\core\part_advanced.py", line 148, in _set_chamfer_size
+    raise KompasOperationError(
+        f"Не задать размер фаски distance={distance} (ни length1, ни SetChamferParam)"
+    )
+core.exceptions.KompasOperationError: Не задать размер фаски distance=1.5 (ни length1, ни SetChamferParam)
+=== TEST: bushing ===
+  edges after hole: 14
+  parallel_z unavailable (expected on some installs): filter parallel_z: ни одного ребра с известным направлением. (без direction: 14 из 14). На этой установке метаданные ребра могут быть недоступны — используйте 'all'.
+FAIL: bushing: Не задать размер фаски distance=0.5 (ни length1, ни SetChamferParam)
+Traceback (most recent call last):
+  File "D:\учеба\ML_study\compas\core\smoke_edges.py", line 78, in test_bushing_outer_edges
+    ez = part.get_edges("parallel_z")
+  File "D:\учеба\ML_study\compas\core\part.py", line 199, in get_edges
+    return _get_edges(self._part, filter, point=point, tol=tol)
+  File "D:\учеба\ML_study\compas\core\edges.py", line 429, in get_edges
+    return filter_edges(all_edges, filter, point=point, tol=tol)
+  File "D:\учеба\ML_study\compas\core\edges.py", line 372, in filter_edges
+    raise KompasOperationError(
+    ...<3 lines>...
+    )
+core.exceptions.KompasOperationError: filter parallel_z: ни одного ребра с известным направлением. (без direction: 14 из 14). На этой установке метаданные ребра могут быть недоступны — используйте 'all'.
 
-Запуск в КОМПАС…
-Готово.
+During handling of the above exception, another exception occurred:
 
-все сделал отлично, српвился с задачей, только лучше чтобы эскизы (то из чего потом выдавливаются грани) были определены (размерные линии были) и дальше работать с фасками, скруглениями, уклонами, пазами
-как вариант можно будет найти какие нибудь основы моделироваиня деталей, скормить их модели, только не знаю как это сделать, добавить в общем файл где будут описания базового построения в компас
-и модель будет еще уходить в этот файл, понимать что нужно строить, потом на примерах видеть код для компаса, для разных построений, но это будет занимать много места, отчаянный шаг, нужно еще посмотреть
-пока идет все хорошо
+Traceback (most recent call last):
+  File "D:\учеба\ML_study\compas\core\smoke_edges.py", line 26, in _run
+    fn()
+    ~~^^
+  File "D:\учеба\ML_study\compas\core\smoke_edges.py", line 83, in test_bushing_outer_edges
+    part.chamfer(edges, distance=0.5)
+    ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^
+  File "D:\учеба\ML_study\compas\core\part.py", line 228, in chamfer
+    return apply_chamfer(self, edges, d)
+  File "D:\учеба\ML_study\compas\core\part_advanced.py", line 181, in apply_chamfer
+    _set_chamfer_size(definition, distance)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\учеба\ML_study\compas\core\part_advanced.py", line 148, in _set_chamfer_size
+    raise KompasOperationError(
+        f"Не задать размер фаски distance={distance} (ни length1, ни SetChamferParam)"
+    )
+core.exceptions.KompasOperationError: Не задать размер фаски distance=0.5 (ни length1, ни SetChamferParam)
+=== TEST: plate ===
+  edges: 25
+  top_z fallback to all: top_z: нет рёбер с midpoint — COM не отдал координаты. Используйте 'all'.
+FAIL: plate: Не удалось привязать рёбра к операции фаски/скругления. COM-definition не принял AddArrayOfEdges/Edges.Add. Рёбер в наборе: 25. Детали: 
+Traceback (most recent call last):
+  File "D:\учеба\ML_study\compas\core\smoke_edges.py", line 99, in test_plate_fillet
+    top = part.get_edges("top_z", tol=0.5)
+  File "D:\учеба\ML_study\compas\core\part.py", line 199, in get_edges
+    return _get_edges(self._part, filter, point=point, tol=tol)
+  File "D:\учеба\ML_study\compas\core\edges.py", line 429, in get_edges
+    return filter_edges(all_edges, filter, point=point, tol=tol)
+  File "D:\учеба\ML_study\compas\core\edges.py", line 399, in filter_edges
+    raise KompasOperationError(
+        f"{pred}: нет рёбер с midpoint — COM не отдал координаты. Используйте 'all'."
+    )
+core.exceptions.KompasOperationError: top_z: нет рёбер с midpoint — COM не отдал координаты. Используйте 'all'.
 
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "D:\учеба\ML_study\compas\core\smoke_edges.py", line 26, in _run
+    fn()
+    ~~^^
+  File "D:\учеба\ML_study\compas\core\smoke_edges.py", line 104, in test_plate_fillet
+    part.fillet(edges, radius=1.0)
+    ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^
+  File "D:\учеба\ML_study\compas\core\part.py", line 254, in fillet
+    return apply_fillet(self, edges, r)
+  File "D:\учеба\ML_study\compas\core\part_advanced.py", line 211, in apply_fillet
+    _attach_edges(definition, edges)
+    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^
+  File "D:\учеба\ML_study\compas\core\part_advanced.py", line 128, in _attach_edges
+    raise KompasOperationError(
+    ...<3 lines>...
+    )
+core.exceptions.KompasOperationError: Не удалось привязать рёбра к операции фаски/скругления. COM-definition не принял AddArrayOfEdges/Edges.Add. Рёбер в наборе: 25. Детали: 
+
+Passed 0/4
+
+2
