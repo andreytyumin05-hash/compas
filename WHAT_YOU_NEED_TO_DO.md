@@ -1,11 +1,16 @@
-# Vision + рассуждение
-
-Gemini теперь отдаёт **build_plan**, тип линий (сплошная/пунктир/оси), **patterns_hint**.
-Кодоген идёт по плану, шаблоны почти отключены на сложных ТЗ.
+# Офлайн-проверка (без КОМПАС)
 
 ```powershell
 git pull origin agent-v2-vision
-python -m bot
+
+# встроенные кейсы
+python -m agent.dry_run --self-test
+
+# свой код
+python -m agent.dry_run --task "Пробка Ø50 Ø30" --code-file script.py
+
+# unit-тесты без КОМПАС
+python -m unittest tests.test_offline_dry_run tests.test_agent_templates tests.test_task_feature_requirements -v
 ```
 
-В TG в подтверждении смотри блок «План построения» — если план верный, а модель нет, проблема в кодогене; если план врёт (пунктир как стенка) — в vision.
+Исправлено: critic больше не запрещает `part.step` / `part.slot` (они есть в core).
