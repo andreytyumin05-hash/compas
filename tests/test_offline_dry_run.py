@@ -95,7 +95,8 @@ part.update()
         self.assertIn("План построения", human)
         task = spec_to_task_text(spec)
         self.assertIn("BUILD_PLAN", task)
-        self.assertIn("пунктир", task.lower() + " " + task)
+        self.assertIn("drawing_dashed_lines", task)
+        self.assertIn("body_style=cylindrical_steps", task)
 
 
 if __name__ == "__main__":

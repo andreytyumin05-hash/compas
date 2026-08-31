@@ -44,7 +44,6 @@ def must_fix_holes(code: str) -> bool:
 
 
 def _feature_types_from_task(task: str) -> Set[str]:
-    """Явные feature=... из машинного ТЗ."""
     found = set()
     for m in re.finditer(r"feature\s*=\s*([a-z_]+)", task or "", flags=re.I):
         found.add(m.group(1).lower())
@@ -58,11 +57,6 @@ def _feature_types_from_task(task: str) -> Set[str]:
 
 
 def check_task_feature_requirements(task: str, code: str) -> List[str]:
-    """
-    Требования к операциям:
-    1) приоритет — feature= / required_features= из vision
-    2) иначе — явные слова в пользовательском ТЗ (не boilerplate)
-    """
     low_t = (task or "").lower()
     low_c = (code or "").lower()
     missing: List[str] = []
@@ -70,7 +64,6 @@ def check_task_feature_requirements(task: str, code: str) -> List[str]:
     if not low_t.strip() or not low_c.strip():
         return missing
 
-    # убрать строки-шаблоны, которые раньше давали ложные «карман/фаска»
     filtered_lines = []
     for ln in low_t.splitlines():
         s = ln.strip()
@@ -85,53 +78,40 @@ def check_task_feature_requirements(task: str, code: str) -> List[str]:
 
     feats = _feature_types_from_task(task)
 
-    def has_cutish() -> bool:
-        return any(
-            x in low_c
-            for x in (
-                "cut(",
-                "hole(",
-                "pocket(",
-                "pattern_holes",
-                "slot(",
-                "keyway(",
-                "ring_groove(",
-                "groove(",
-                "counterbore(",
-                "countersink(",
-            )
-        )
+    def has_hole_ops() -> bool:
+        return any(x in low_c for x in ("hole(", "pattern_holes"))
 
-    # --- по явным feature= ---
+    def has_pocket_ops() -> bool:
+        # pattern_holes ≠ карман
+        return any(
+            x in low_c for x in ("cut(", "pocket(", "ring_groove(", "groove(")
+        ) or ("polygon(" in low_c and "cut(" in low_c)
+
     if feats & {"pocket", "hex_pocket", "recess"}:
-        if not has_cutish() and "polygon(" not in low_c:
+        if not has_pocket_ops():
             missing.append("pocket")
         elif feats & {"hex_pocket"} and "polygon(" not in low_c and "hex_" not in low_c:
             if "cut(" not in low_c and "pocket(" not in low_c:
                 missing.append("hex_pocket")
 
     if feats & {"hole", "pattern_holes"}:
-        if not any(x in low_c for x in ("hole(", "pattern_holes", "cut(")):
+        if not has_hole_ops() and "cut(" not in low_c:
             missing.append("hole")
 
     if feats & {"groove"}:
         if "ring_groove(" not in low_c and "groove(" not in low_c:
-            # два circle + cut тоже приемлемо
             if not (low_c.count("circle(") >= 2 and "cut(" in low_c):
                 missing.append("groove")
 
     if feats & {"counterbore"}:
         if "counterbore(" not in low_c:
-            # два cut/hole разного диаметра
             if low_c.count("hole(") + low_c.count("cut(") < 2:
                 missing.append("counterbore")
 
-    if feats & {"chamfer"}:
-        if "chamfer(" not in low_c:
-            missing.append("chamfer")
-    if feats & {"fillet"}:
-        if "fillet(" not in low_c:
-            missing.append("fillet")
+    if feats & {"chamfer"} and "chamfer(" not in low_c:
+        missing.append("chamfer")
+    if feats & {"fillet"} and "fillet(" not in low_c:
+        missing.append("fillet")
 
     if feats & {"slot", "keyway"}:
         if "slot(" not in low_c and "keyway(" not in low_c:
@@ -142,13 +122,12 @@ def check_task_feature_requirements(task: str, code: str) -> List[str]:
         if n_ext < 2:
             missing.append("несколько extrude (ступени)")
 
-    # --- пользовательский текст без feature= ---
     if not feats:
         if any(w in low_t for w in ("карман", "шестигранн", "углублен")):
-            if not has_cutish():
+            if not has_pocket_ops():
                 missing.append("pocket")
         if any(w in low_t for w in ("отверст", "крепежн")):
-            if not any(x in low_c for x in ("hole(", "pattern_holes", "cut(")):
+            if not has_hole_ops() and "cut(" not in low_c:
                 missing.append("hole")
         if any(w in low_t for w in ("канавк", "проточк")):
             if "ring_groove(" not in low_c and "groove(" not in low_c:
@@ -176,7 +155,8 @@ def check_task_feature_requirements(task: str, code: str) -> List[str]:
         if (
             rich
             and low_c.count("extrude(") <= 1
-            and not has_cutish()
+            and not has_pocket_ops()
+            and not has_hole_ops()
             and "step(" not in low_c
         ):
             missing.append("feature_tree")
