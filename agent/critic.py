@@ -1,8 +1,6 @@
 """
 Проверка кода ДО запуска в КОМПАС.
-
-1) Детерминированный разбор структуры (быстро, бесплатно)
-2) Для сложных ТЗ — короткий LLM-критик
+1) структура  2) опционально LLM-критик
 """
 
 from __future__ import annotations
@@ -11,7 +9,6 @@ import json
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
-# Методы Part, которые реально есть в core (для подсказок/аудита)
 KNOWN_PART_METHODS = frozenset(
     {
         "create",
@@ -75,33 +72,34 @@ def is_complex_task(task: str) -> bool:
             "ступен",
             "уступ",
             "пробк",
-            "вал",
             "штуцер",
             "шестигран",
             "канавк",
             "карман",
             "бобыш",
             "feature=",
-            "feature_order",
             "build_plan",
+            "body_style=cylindrical",
+            "required_features=",
         )
     ):
         return True
-    diams = re.findall(r"(?:ø|∅|diameter\s*=|диаметр)\s*(\d+)", t)
+    if re.search(r"\bвал\b", t):
+        return True
+    diams = re.findall(r"(?:ø|∅|diameter\s*=)\s*(\d+)", t)
     return len(set(diams)) >= 2
 
 
 def extract_part_calls(code: str) -> List[str]:
-    """Имена методов part.xxx( в коде."""
     return re.findall(r"\bpart\.([A-Za-z_]\w*)\s*\(", code or "")
 
 
 def unknown_part_calls(code: str) -> List[str]:
-    found = []
-    for name in extract_part_calls(code):
-        if name not in KNOWN_PART_METHODS:
-            found.append(name)
-    return list(dict.fromkeys(found))
+    return list(
+        dict.fromkeys(
+            n for n in extract_part_calls(code) if n not in KNOWN_PART_METHODS
+        )
+    )
 
 
 def summarize_ops(code: str) -> Dict[str, int]:
@@ -128,12 +126,21 @@ def summarize_ops(code: str) -> Dict[str, int]:
 
 
 def review_structure(task: str, code: str) -> List[str]:
-    """Эвристики «код выглядит как неправильная деталь»."""
     issues: List[str] = []
     t = _low(task)
     c = _low(code)
     if not c.strip():
         return ["пустой код"]
+
+    # не смотреть boilerplate
+    t_lines = [
+        ln
+        for ln in t.splitlines()
+        if not ln.strip().startswith("ops_order=")
+        and not ln.strip().startswith("правило:")
+        and not ln.strip().startswith("порядок:")
+    ]
+    t = "\n".join(t_lines)
 
     n_ext = c.count("extrude(")
     n_cut = c.count("cut(")
@@ -150,41 +157,50 @@ def review_structure(task: str, code: str) -> List[str]:
         if bad.lower() in c:
             issues.append(f"запрещённый фрагмент: {bad}")
 
-    cylindrical = any(
-        w in t for w in ("пробк", "вал", "штуцер", "shaft", "втулк", "цилиндр")
-    ) or (len(re.findall(r"(?:ø|∅)\s*\d+", t)) >= 2)
+    cylindrical = (
+        "body_style=cylindrical" in t
+        or any(w in t for w in ("пробк", "штуцер", "shaft", "втулк", "цилиндр"))
+        or re.search(r"\bвал\b", t) is not None
+        or (len(re.findall(r"(?:ø|∅)\s*\d+", t)) >= 2)
+    )
     if cylindrical and n_rect > 0 and n_circ == 0:
         issues.append(
             "для цилиндрической/ступенчатой детали использован rectangle — нужны circle+extrude"
         )
     if cylindrical and n_ext < 2 and any(
-        w in t for w in ("ступен", "уступ", "пробк", "канал", "стержен")
+        w in t for w in ("ступен", "уступ", "пробк", "feature=step", "feature=boss")
     ):
         issues.append("мало extrude для ступенчатой детали (ожидается ≥2)")
 
-    if any(w in t for w in ("карман", "углублен", "шестигранн", "выборк")):
+    if (
+        any(w in t for w in ("карман", "углублен", "шестигранн", "выборк"))
+        or "feature=pocket" in t
+        or "feature=hex_pocket" in t
+    ):
         if n_cut == 0 and n_hole == 0 and "pocket(" not in c:
             issues.append("нужен cut/hole/pocket для кармана или углубления")
-        if "шестигран" in t and n_poly == 0 and "hex_" not in c:
+        if ("шестигран" in t or "hex_pocket" in t) and n_poly == 0 and "hex_" not in c:
             if n_cut == 0 and "pocket(" not in c:
                 issues.append("шестигранник: polygon/hex_boss/pocket + cut")
 
-    if any(w in t for w in ("вырез", "карман", "глух")) and n_cut == 0 and n_ext >= 1:
-        if "through_all" not in c and "hole(" not in c and "pocket(" not in c:
-            issues.append("вырез описан в ТЗ, но в коде нет cut/hole/pocket")
+    if ("feature=groove" in t or "канавк" in t) and "ring_groove(" not in c and "groove(" not in c:
+        if not (n_circ >= 2 and n_cut >= 1):
+            issues.append("канавка: ring_groove или два circle + cut")
 
-    if any(w in t for w in ("отверст", "крепеж")) and n_hole == 0 and n_cut == 0:
-        issues.append("в ТЗ отверстия, в коде нет hole/cut/pattern_holes")
+    if any(w in t for w in ("отверст", "крепеж")) or "feature=hole" in t or "feature=pattern_holes" in t:
+        if n_hole == 0 and n_cut == 0:
+            issues.append("в ТЗ отверстия, в коде нет hole/cut/pattern_holes")
 
-    # fillet/chamfer: part.fillet(r) без edges допускается (try_fillet), но size= — устаревший стиль
     if re.search(r"chamfer\s*\(\s*size\s*=", c):
-        issues.append("chamfer(size=...): лучше part.chamfer(edges, distance=...) или part.chamfer(distance)")
+        issues.append(
+            "chamfer(size=...): part.chamfer(edges, distance=...) или part.chamfer(distance)"
+        )
 
     if "part.update(" not in c:
         issues.append("нет part.update()")
 
-    if n_rect and not n_circ and any(
-        w in t for w in ("ø", "диаметр", "ступен", "бобыш", "пробк")
+    if n_rect and not n_circ and (
+        cylindrical or any(w in t for w in ("ø", "диаметр", "ступен", "бобыш", "пробк"))
     ):
         issues.append("код похож на плиту, а ТЗ описывает круглую/ступенчатую геометрию")
 

@@ -216,7 +216,7 @@ def format_spec_for_user(spec: Dict[str, Any]) -> str:
 
 
 def spec_to_task_text(spec: Dict[str, Any]) -> str:
-    """ТЗ для кодогена: план + фичи + подсказки массивов."""
+    """ТЗ для кодогена: план + фичи. Без слов-триггеров в boilerplate."""
     lines: List[str] = []
     ptype = str(spec.get("part_type") or "other")
     name = spec.get("name") or ptype
@@ -225,7 +225,7 @@ def spec_to_task_text(spec: Dict[str, Any]) -> str:
         lines.append(f"axis={spec['axis']}")
 
     lines.append(
-        "Правило: сплошные линии = тело; пунктир = скрытое/оси — не выдавливать как стенку"
+        "Правило: solid_contour=body; dashed/hidden/centerline ≠ наружный контур"
     )
 
     plan = spec.get("build_plan") or []
@@ -234,9 +234,8 @@ def spec_to_task_text(spec: Dict[str, Any]) -> str:
         for step in plan:
             lines.append(f"  - {step}")
     else:
-        lines.append(
-            "Порядок: база → ступени/бобышки → карманы/канавки → отверстия/массивы → фаски"
-        )
+        # нейтрально, без «карман/отверстие/фаска» — иначе ложные требования к коду
+        lines.append("ops_order=base,add_material,cuts,patterns,edges")
 
     drawing = spec.get("drawing") or {}
     for k in ("dashed_lines", "centerlines", "notes"):
@@ -248,8 +247,11 @@ def spec_to_task_text(spec: Dict[str, Any]) -> str:
         if v is not None:
             lines.append(f"{k}={v}")
 
+    feat_types: List[str] = []
     for feat in spec.get("features") or []:
         ftype = str(feat.get("type") or "")
+        if ftype:
+            feat_types.append(ftype)
         p = _flatten_params(feat.get("params"))
         lines.append(f"feature={ftype}")
         if feat.get("depends_on"):
@@ -263,10 +265,14 @@ def spec_to_task_text(spec: Dict[str, Any]) -> str:
     for h in spec.get("patterns_hint") or []:
         lines.append(f"pattern_hint={h}")
 
-    if ptype in ("shaft", "plug") or "пробк" in name.lower():
-        lines.append("ЦИЛИНДРИЧЕСКАЯ: только circle+extrude по ступеням, НЕ rectangle")
+    if ptype in ("shaft", "plug") or "пробк" in str(name).lower():
+        lines.append("body_style=cylindrical_steps")
+        lines.append("forbid=rectangle_as_main_body")
     if ptype == "bushing":
         lines.append("втулка")
+
+    if feat_types:
+        lines.append("required_features=" + ",".join(feat_types))
 
     unk = spec.get("unknown_dimensions") or []
     if unk:
