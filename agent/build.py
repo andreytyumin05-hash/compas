@@ -1,4 +1,4 @@
-"""Сборка в КОМПАС + память успехов."""
+"""Сборка в КОМПАС: generate_checked уже с критиком."""
 
 from __future__ import annotations
 
@@ -10,11 +10,12 @@ from typing import Optional, Tuple
 from rich.console import Console
 from rich.syntax import Syntax
 
-from .code_fix import normalize_code, must_fix_holes, check_task_feature_requirements
+from .code_fix import normalize_code, must_fix_holes
 from .memory import remember
 from .prompts import build_repair_prompt, get_system_prompt
 from .runner import Agent
 from .validate import validate_generated_code
+from .critic import review_before_build
 
 _ROOT = Path(__file__).resolve().parent.parent
 if str(_ROOT) not in sys.path:
@@ -28,20 +29,25 @@ def execute_code(code: str) -> None:
 
 
 def run_task(task: str, *, max_com_retries: int = 2) -> str:
-    # Важно: текст после распознавания и редактирования нередко выглядит как
-    # «Распознал так: ...» или «>> ...». Приводим его к нормальному TЗ.
     normalized = task.strip()
-    normalized = re.sub(r"^\s*(?:распознал\s+так|detected|recognized)\s*[:\-]*\s*", "", normalized, flags=re.I)
+    normalized = re.sub(
+        r"^\s*(?:распознал\s+так|detected|recognized)\s*[:\-]*\s*",
+        "",
+        normalized,
+        flags=re.I,
+    )
     normalized = normalized.replace(">>", " ").replace("|", " ")
     normalized = " ".join(normalized.split())
 
     agent = Agent()
     code, errors = agent.generate_checked(normalized)
-    missing = check_task_feature_requirements(task, code)
     if errors or must_fix_holes(code):
         raise RuntimeError(
             "Код не прошёл проверку: "
-            + "; ".join((errors or []) + (["отверстия без cut"] if must_fix_holes(code) else []))
+            + "; ".join(
+                (errors or [])
+                + (["отверстия без cut"] if must_fix_holes(code) else [])
+            )
         )
 
     last_err: Optional[BaseException] = None
@@ -61,14 +67,23 @@ def run_task(task: str, *, max_com_retries: int = 2) -> str:
                         {"role": "system", "content": get_system_prompt(task)},
                         {
                             "role": "user",
-                            "content": build_repair_prompt(task, final, [str(e)]),
+                            "content": build_repair_prompt(
+                                task, final, [str(e)]
+                            ),
                         },
                     ],
                     temperature=0.1,
                 )
                 new_code = normalize_code(agent._extract_code(raw or ""))
                 ok, _ = validate_generated_code(new_code)
-                if ok:
+                if not ok:
+                    continue
+                good, crit = review_before_build(
+                    task, new_code, llm=None, use_llm=False
+                )
+                if good:
+                    final = new_code
+                elif not crit:
                     final = new_code
             except Exception:
                 pass

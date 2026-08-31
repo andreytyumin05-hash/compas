@@ -1,4 +1,4 @@
-"""Генерация: простой шаблон (если прошёл feature-check) → LLM."""
+"""Генерация → проверки → критик → код."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ from .code_fix import (
     must_fix_holes,
     check_task_feature_requirements,
 )
+from .critic import review_before_build
 from .llm import get_llm_client, BaseLLM
 from .prompts import get_system_prompt, build_user_prompt, build_repair_prompt
 from .templates import try_template
@@ -29,15 +30,15 @@ class Agent:
     def generate_checked(
         self, task: str, temperature: float = 0.1, max_retries: int = 3
     ) -> Tuple[str, List[str]]:
-        # Шаблон только если покрывает ТЗ
         tmpl = try_template(task)
         if tmpl:
             code = normalize_code(tmpl)
             ok, errors = validate_generated_code(code)
             missing = check_task_feature_requirements(task, code)
             if ok and not must_fix_holes(code) and not missing:
-                return code, []
-            # шаблон слишком простой — идём в LLM
+                good, crit = review_before_build(task, code, llm=None, use_llm=False)
+                if good:
+                    return code, []
 
         last_raw = ""
         code = ""
@@ -63,19 +64,30 @@ class Agent:
             except Exception as e:
                 errors = [f"LLM: {e}"]
                 continue
+
             code = normalize_code(self._extract_code(last_raw))
             ok, errors = validate_generated_code(code)
             if ok and must_fix_holes(code):
                 ok = False
                 errors = list(errors) + ["отверстия без cut/hole"]
+
             missing = check_task_feature_requirements(task, code)
             if ok and missing:
                 ok = False
                 errors = list(errors) + [
                     "не хватает операций: " + ", ".join(missing)
                 ]
+
             if ok:
-                return code, []
+                # структурный + LLM-критик до КОМПАС
+                good, crit = review_before_build(
+                    task, code, llm=self.llm, use_llm=None
+                )
+                if not good:
+                    ok = False
+                    errors = list(crit) if crit else ["критик отклонил код"]
+                else:
+                    return code, []
 
         if not code.strip():
             return "", [
