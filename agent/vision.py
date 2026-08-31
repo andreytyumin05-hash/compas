@@ -1,4 +1,4 @@
-"""Распознавание чертежа → JSON."""
+"""Распознавание чертежа → JSON + план построения."""
 
 from __future__ import annotations
 
@@ -16,7 +16,6 @@ from .schema import FEATURE_SCHEMA_TEXT
 _ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(_ROOT / ".env")
 
-_DEFAULT_GEMINI = "gemini-3.6-flash"
 _GEMINI_FALLBACKS = (
     "gemini-3.6-flash",
     "gemini-3.0-flash",
@@ -26,19 +25,45 @@ _GEMINI_FALLBACKS = (
 )
 _DEFAULT_OPENROUTER_VISION = "openai/gpt-4o-mini"
 
-_VISION_PROMPT = f"""Ты инженер-конструктор. По фото/скану чертежа извлеки геометрию детали.
-Ответ — ТОЛЬКО валидный JSON (без markdown), схема:
+_VISION_PROMPT = f"""Ты инженер-конструктор с опытом чтения машиностроительных чертежей.
+По изображению извлеки геометрию и КАК лучше собрать деталь в CAD.
+Ответ — ТОЛЬКО один JSON без markdown.
 
+Схема:
 {FEATURE_SCHEMA_TEXT}
 
-Правила:
-- единицы mm; hole/pattern: diameter, не радиус
-- ступенчатый вал/пробка/штуцер: part_type=shaft или other; каждая ступень — отдельный feature type=step или extrude_body с diameter+length
-- глухие вырезы (шестигранник, карман): type=pocket, depth, shape если видно
-- сквозные отверстия: type=hole или pattern_holes, through_all подразумевается
-- фаски/скругления — отдельные features
-- не выдумывай размеры; нечитаемое → unknown_dimensions
-- перечисли ВСЕ видимые ступени и отверстия, ничего не объединяй в «одну плиту»
+## Чтение линий (критично)
+- Сплошная толстая — видимый контур → тело / ступень / бобышка (extrude).
+- Штриховая (пунктир) — скрытый контур за телом → отверстие, полость, дальняя кромка.
+  НЕ делай из пунктира наружную стенку и НЕ выдавливай как основной контур.
+- Штрихпунктирная — ось, PCD, плоскость симметрии → для массивов и центров, не контур.
+- Тонкая сплошная — размерные / вспомогательные — только размеры, не геометрия.
+
+## Паттерны
+- Одинаковые отверстия по кругу → type=pattern_holes, pattern=circular, pcd, count, diameter.
+- По прямой → pattern=linear.
+- Разные диаметры в разных местах → отдельные hole / hole_list, не один «усреднённый».
+- Цековка / зенковка: counterbore / countersink (pilot + больший диаметр + depth).
+
+## Ступени и тела
+- Каждая цилиндрическая ступень со своим Ø и длиной — отдельный feature step/extrude_body.
+- Не склеивай вал/пробку/штуцер в одну «плиту» или один rectangle.
+- part_type: shaft|plug для осевых ступенчатых; cover|flange для плоских с бобышкой.
+
+## build_plan
+Обязательно заполни build_plan — нумерованные шаги для CAD-агента, например:
+1. База Ø50 L10 circle+extrude
+2. Ступень Ø42 L20
+3. Канавка ring_groove
+4. Шестигранный карман polygon+cut
+5. pattern_holes_circular …
+6. chamfer на торце
+Укажи depends_on, если шаг опирается на предыдущий.
+
+## Размеры
+- mm; у отверстий diameter (не радиус).
+- Не выдумывай; нечитаемое → unknown_dimensions + warnings.
+- patterns_hint: короткие фразы «N×Ød на PCD …».
 """
 
 
@@ -84,7 +109,7 @@ def _analyze_gemini(image_bytes: bytes, mime: str) -> Dict[str, Any]:
                     _VISION_PROMPT,
                     {"mime_type": mime, "data": image_bytes},
                 ],
-                generation_config={"temperature": 0.1},
+                generation_config={"temperature": 0.15},
             )
             text = getattr(resp, "text", None) or ""
             if not text.strip():
@@ -111,15 +136,13 @@ def _analyze_openrouter(image_bytes: bytes, mime: str) -> Dict[str, Any]:
         raise RuntimeError("OPENROUTER_API_KEY не задан")
     vm = (os.getenv("VISION_MODEL") or "").strip()
     model = (
-        vm
-        if vm and "gemini" not in vm.lower()
-        else _DEFAULT_OPENROUTER_VISION
+        vm if vm and "gemini" not in vm.lower() else _DEFAULT_OPENROUTER_VISION
     )
     b64 = base64.b64encode(image_bytes).decode("ascii")
     client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=key)
     resp = client.chat.completions.create(
         model=model,
-        temperature=0.1,
+        temperature=0.15,
         messages=[
             {
                 "role": "user",
