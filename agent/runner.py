@@ -1,11 +1,15 @@
-"""Генерация: шаблон → память → LLM."""
+"""Генерация: простой шаблон (если прошёл feature-check) → LLM."""
 
 from __future__ import annotations
 
 import re
 from typing import List, Optional, Tuple
 
-from .code_fix import normalize_code, must_fix_holes, check_task_feature_requirements
+from .code_fix import (
+    normalize_code,
+    must_fix_holes,
+    check_task_feature_requirements,
+)
 from .llm import get_llm_client, BaseLLM
 from .prompts import get_system_prompt, build_user_prompt, build_repair_prompt
 from .templates import try_template
@@ -25,12 +29,15 @@ class Agent:
     def generate_checked(
         self, task: str, temperature: float = 0.1, max_retries: int = 3
     ) -> Tuple[str, List[str]]:
+        # Шаблон только если покрывает ТЗ
         tmpl = try_template(task)
         if tmpl:
             code = normalize_code(tmpl)
             ok, errors = validate_generated_code(code)
-            if ok and not must_fix_holes(code):
+            missing = check_task_feature_requirements(task, code)
+            if ok and not must_fix_holes(code) and not missing:
                 return code, []
+            # шаблон слишком простой — идём в LLM
 
         last_raw = ""
         code = ""
@@ -64,17 +71,15 @@ class Agent:
             missing = check_task_feature_requirements(task, code)
             if ok and missing:
                 ok = False
-                errors = list(errors) + ["не хватает фич из ТЗ: " + ", ".join(missing)]
+                errors = list(errors) + [
+                    "не хватает операций: " + ", ".join(missing)
+                ]
             if ok:
                 return code, []
 
-        tmpl = try_template(task)
-        if tmpl:
-            return normalize_code(tmpl), []
         if not code.strip():
             return "", [
-                "модель не вернула код. "
-                + repr((last_raw or "")[:200])
+                "модель не вернула код. " + repr((last_raw or "")[:200])
             ]
         return code, errors
 
