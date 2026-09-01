@@ -1,38 +1,25 @@
-(venv) PS D:\учеба\ML_study\compas> python -m unittest tests.test_visual_loop tests.test_visual_and_vars tests.test_offline_dry_run -v
-test_bushing_template_has_var_and_shot (tests.test_visual_loop.VisualLoopTest.test_bushing_template_has_var_and_shot) ... ok
-test_ensure_skips_if_already_present (tests.test_visual_loop.VisualLoopTest.test_ensure_skips_if_already_present) ... ok
-test_ensure_visual_tail_adds_screenshots (tests.test_visual_loop.VisualLoopTest.test_ensure_visual_tail_adds_screenshots) ... ok
-test_parse_critic_json (tests.test_visual_loop.VisualLoopTest.test_parse_critic_json) ... ok
-test_review_no_images_empty (tests.test_visual_loop.VisualLoopTest.test_review_no_images_empty) ... ok
-test_code_with_var_and_screenshot_valid (tests.test_visual_and_vars.VisualAndVarsTest.test_code_with_var_and_screenshot_valid) ... ok
-test_critic_warns_without_var (tests.test_visual_and_vars.VisualAndVarsTest.test_critic_warns_without_var) ... ok
-test_known_methods_include_fluent (tests.test_visual_and_vars.VisualAndVarsTest.test_known_methods_include_fluent) ... ok
-test_screenshot_without_path_still_parses (tests.test_visual_and_vars.VisualAndVarsTest.test_screenshot_without_path_still_parses) ... ok
-test_bushing_ok (tests.test_offline_dry_run.OfflineDryRunTest.test_bushing_ok) ... ok
-test_complex_task_no_box_template (tests.test_offline_dry_run.OfflineDryRunTest.test_complex_task_no_box_template) ... ok
-test_plug_rectangle_rejected (tests.test_offline_dry_run.OfflineDryRunTest.test_plug_rectangle_rejected) ... ok
-test_schema_build_plan_in_user_text (tests.test_offline_dry_run.OfflineDryRunTest.test_schema_build_plan_in_user_text) ... ok
-test_simple_bushing_template (tests.test_offline_dry_run.OfflineDryRunTest.test_simple_bushing_template) ... ok
-test_step_and_slot_are_allowed_methods (tests.test_offline_dry_run.OfflineDryRunTest.test_step_and_slot_are_allowed_methods) ... ok
-test_unknown_method_flagged (tests.test_offline_dry_run.OfflineDryRunTest.test_unknown_method_flagged) ... ok
+Распознал так: (картинку прикрепил в .png)
 
-----------------------------------------------------------------------
-Ran 16 tests in 0.006s
+Деталь: Крышка (крышка)
+Ось: Z
+Размеры: габарит 116×80 mm; толщина 13 mm; общая высота 31 mm
 
-OK
+План построения:
+  1. База: Построение основания фланца овальной/стадионной формы (длина 116 мм, ширина 80 мм, радиус скругления торцов R40) высотой 13 мм вытягиванием (Extrude).
+  2. Ступень (Бобышка): Вытягивание центральной бобышки стадионной формы высотой 31 мм (от нижней плоскости) или на 18 мм вверх от фланца.
+  3. Основные отверстия: Выполнение 2 сквозных отверстий Ø28 мм с межосевым расстоянием 36 мм.
+  4. Крепежные отверстия с цековкой: Построение 6 отверстий с цековкой (проходное Ø7 мм сквозное, цековка Ø11 мм на глубину 6 мм), расположенных по контуру фланца.
+  5. Штифтовые отверстия: Построение 2 сквозных отверстий Ø5 мм для позиционирования.
 
-(venv) PS D:\учеба\ML_study\compas> python -m bot
-Traceback (most recent call last):
-  File "<frozen runpy>", line 198, in _run_module_as_main
-  File "<frozen runpy>", line 88, in _run_code
-  File "D:\учеба\ML_study\compas\bot\__main__.py", line 285, in <module>
-    main()
-    ~~~~^^
-  File "D:\учеба\ML_study\compas\bot\__main__.py", line 81, in main
-    from bot.sessions import session_workspace
-  File "D:\учеба\ML_study\compas\bot\sessions.py", line 10, in <module>
-    from core.export import safe_delete_path, session_dir
-  File "D:\учеба\ML_study\compas\core\__init__.py", line 11, in <module>
-    Part.__bases__ = (FluentMixin,) + Part.__bases__
-    ^^^^^^^^^^^^^^
-TypeError: __bases__ assignment: 'FluentMixin' deallocator differs from 'object'
+Чертёж: пунктир/оси — не наружный контур; Штриховка на разрезе A-A показывает сечение материала (СЧ15), пунктир обозначает невидимые отверстия на главном виде
+Массивы: 2 центральных отверстия Ø28 на расстоянии 36 мм друг от друга; 6 отверстий с цековкой Ø7/Ø11 глубина 6 мм расположены симметрично по контуру фл; 2 отверстия Ø5 мм под штифты под углом 45° к оси
+⚠ Размер 116* является справочным (36 + 2 * R40 = 116)
+
+Если верно — «Строить». Если нет — размеры текстом.
+
+(строит долго, уже минут 7)
+
+
+повис вроде как 
+
+оказалось нужно открыть компас для того чтобы отправить изображение, причем скрин не с рабочей поверхности (все отверстия внизу детали, а я увидел скрин поверхности сбоку, где эти отверстия даже не видны, причем деталь видно что корявая, он ее все равно моментально отправил)
