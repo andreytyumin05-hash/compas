@@ -12,7 +12,6 @@ _NEG_NUM = re.compile(
     re.I,
 )
 _ZERO_DEPTH = re.compile(r"extrude\s*\([^)]*depth\s*=\s*0\s*[,)]", re.I)
-# проза только если нет валидного Part.create (иначе extract мог вырезать код)
 _PROSE = re.compile(
     r"\b(we need|the user|produce only|corrected code|here is|let's|i will)\b",
     re.I,
@@ -25,7 +24,6 @@ def validate_generated_code(code: str) -> Tuple[bool, List[str]]:
     if not code or not code.strip():
         return False, ["пустой код"]
 
-    # если есть нормальный импорт и create — прозу в хвосте игнорируем после extract
     if _PROSE.search(code) and "Part.create" not in code:
         return False, ["английская проза вместо Python"]
 
@@ -63,3 +61,40 @@ def validate_generated_code(code: str) -> Tuple[bool, List[str]]:
         errors.append("extrude depth=0")
 
     return (len(errors) == 0, errors)
+
+
+def critic_warnings(code: str, task: str = "") -> List[str]:
+    """
+    Мягкие предупреждения Visual Fluent (не блокируют build).
+    - нет part.var при нескольких размерах в ТЗ
+    - нет set_properties
+    - нет screenshot / set_view на сложных задачах
+    """
+    warnings: List[str] = []
+    c = code or ""
+    t = (task or "").lower()
+
+    if not c.strip():
+        return warnings
+
+    n_var = c.count("part.var(") + c.count(".var(")
+    has_props = "set_properties(" in c
+    has_shot = "screenshot(" in c
+    has_view = "set_view(" in c
+
+    # несколько чисел в ТЗ → желательны переменные
+    nums = re.findall(r"\b\d{1,4}(?:[.,]\d+)?\b", t)
+    if len(nums) >= 3 and n_var == 0:
+        warnings.append("желательно part.var(...) для ключевых размеров")
+
+    if len(t) > 40 and not has_props:
+        warnings.append("желательно part.set_properties(designation=..., name=...)")
+
+    complexish = any(
+        w in t
+        for w in ("build_plan", "ступен", "пробк", "feature=", "карман", "бобыш")
+    )
+    if complexish and not has_shot and not has_view:
+        warnings.append("желательно set_view + screenshot для visual loop")
+
+    return warnings
