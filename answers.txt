@@ -1,15 +1,38 @@
-Распознал так:
+(venv) PS D:\учеба\ML_study\compas> python -m unittest tests.test_visual_loop tests.test_visual_and_vars tests.test_offline_dry_run -v
+test_bushing_template_has_var_and_shot (tests.test_visual_loop.VisualLoopTest.test_bushing_template_has_var_and_shot) ... ok
+test_ensure_skips_if_already_present (tests.test_visual_loop.VisualLoopTest.test_ensure_skips_if_already_present) ... ok
+test_ensure_visual_tail_adds_screenshots (tests.test_visual_loop.VisualLoopTest.test_ensure_visual_tail_adds_screenshots) ... ok
+test_parse_critic_json (tests.test_visual_loop.VisualLoopTest.test_parse_critic_json) ... ok
+test_review_no_images_empty (tests.test_visual_loop.VisualLoopTest.test_review_no_images_empty) ... ok
+test_code_with_var_and_screenshot_valid (tests.test_visual_and_vars.VisualAndVarsTest.test_code_with_var_and_screenshot_valid) ... ok
+test_critic_warns_without_var (tests.test_visual_and_vars.VisualAndVarsTest.test_critic_warns_without_var) ... ok
+test_known_methods_include_fluent (tests.test_visual_and_vars.VisualAndVarsTest.test_known_methods_include_fluent) ... ok
+test_screenshot_without_path_still_parses (tests.test_visual_and_vars.VisualAndVarsTest.test_screenshot_without_path_still_parses) ... ok
+test_bushing_ok (tests.test_offline_dry_run.OfflineDryRunTest.test_bushing_ok) ... ok
+test_complex_task_no_box_template (tests.test_offline_dry_run.OfflineDryRunTest.test_complex_task_no_box_template) ... ok
+test_plug_rectangle_rejected (tests.test_offline_dry_run.OfflineDryRunTest.test_plug_rectangle_rejected) ... ok
+test_schema_build_plan_in_user_text (tests.test_offline_dry_run.OfflineDryRunTest.test_schema_build_plan_in_user_text) ... ok
+test_simple_bushing_template (tests.test_offline_dry_run.OfflineDryRunTest.test_simple_bushing_template) ... ok
+test_step_and_slot_are_allowed_methods (tests.test_offline_dry_run.OfflineDryRunTest.test_step_and_slot_are_allowed_methods) ... ok
+test_unknown_method_flagged (tests.test_offline_dry_run.OfflineDryRunTest.test_unknown_method_flagged) ... ok
 
-Деталь: Пробка (крышка)
-Размеры: Ø нар. 50 mm
+----------------------------------------------------------------------
+Ran 16 tests in 0.006s
 
-Буду строить по шагам:
-• основное тело: длина 10 мм, Ø50 мм, Головка пробки (фланец)
-• ступень / уступ: длина 5 мм, Ø36 мм, Канавка / проточка
-• ступень / уступ: длина 20 мм, Ø42 мм, Цилиндрический стержень
-• карман (глухой вырез): глубина 25 мм, глухое, Шестигранное углубление под ключ
-• фаска: Фаска на торце стержня 3х45°
+OK
 
-Если верно — «Строить». Если нет — пришлите размеры текстом.
-
-а построил параллелепипед с вырезом (который даже не виден, был сделан выдавливанием, а нужно вырезанием) и крышечкой сверху
+(venv) PS D:\учеба\ML_study\compas> python -m bot
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "D:\учеба\ML_study\compas\bot\__main__.py", line 285, in <module>
+    main()
+    ~~~~^^
+  File "D:\учеба\ML_study\compas\bot\__main__.py", line 81, in main
+    from bot.sessions import session_workspace
+  File "D:\учеба\ML_study\compas\bot\sessions.py", line 10, in <module>
+    from core.export import safe_delete_path, session_dir
+  File "D:\учеба\ML_study\compas\core\__init__.py", line 11, in <module>
+    Part.__bases__ = (FluentMixin,) + Part.__bases__
+    ^^^^^^^^^^^^^^
+TypeError: __bases__ assignment: 'FluentMixin' deallocator differs from 'object'
