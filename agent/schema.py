@@ -22,6 +22,11 @@ FEATURE_SCHEMA_TEXT = """
     "centerlines": "оси симметрии, PCD",
     "notes": "что пунктир означает на этом чертеже"
   },
+  "construction": {
+    "feature_order": ["base", "boss", "pocket", "pattern_holes", "fillet"],
+    "planes_used": ["xy", "xz"],
+    "notes": ""
+  },
   "build_plan": [
     "1. База: ...",
     "2. Ступень: ...",
@@ -38,6 +43,7 @@ FEATURE_SCHEMA_TEXT = """
         "pilot_diameter": null, "counterbore_diameter": null,
         "outer_diameter": null, "inner_diameter": null,
         "fillet_radius": null, "chamfer_distance": null,
+        "boss_height": null, "pocket_depth": null,
         "pattern": "circular|linear|points|none"
       },
       "depends_on": "после какой фичи (текстом)",
@@ -93,7 +99,7 @@ def _num(v: Any) -> Optional[str]:
         return str(v)
 
 
-def _flatten_params(params: Any) -> Dict[str, Any]:
+def _flatten_params(params: Any, ftype: str = "") -> Dict[str, Any]:
     if not isinstance(params, dict):
         return {}
     out: Dict[str, Any] = {}
@@ -101,7 +107,17 @@ def _flatten_params(params: Any) -> Dict[str, Any]:
         if v is None:
             continue
         if isinstance(v, (int, float, str, bool)):
-            out[str(k)] = v
+            key = str(k)
+            # канонические имена для critic/codegen
+            if key == "depth" and ftype == "pocket":
+                key = "pocket_depth"
+            elif key == "height" and ftype == "boss":
+                key = "boss_height"
+            elif key == "radius" and ftype == "fillet":
+                key = "fillet_radius"
+            elif key == "depth" and ftype == "counterbore":
+                key = "counterbore_depth"
+            out[key] = v
         elif isinstance(v, dict):
             for k2, v2 in v.items():
                 if isinstance(v2, (int, float, str, bool)):
@@ -112,31 +128,25 @@ def _flatten_params(params: Any) -> Dict[str, Any]:
 def _feat_human(feat: Dict[str, Any]) -> str:
     ftype = str(feat.get("type") or "")
     title = _FEAT_RU.get(ftype, ftype or "элемент")
-    p = _flatten_params(feat.get("params"))
+    p = _flatten_params(feat.get("params"), ftype)
     bits: List[str] = []
     for key, label in (
         ("diameter", "Ø"),
         ("length", "длина"),
         ("width", "ширина"),
         ("height", "высота"),
+        ("boss_height", "высота бобышки"),
         ("depth", "глубина"),
+        ("pocket_depth", "глубина кармана"),
         ("thickness", "толщина"),
         ("pcd", "PCD"),
-        ("count", "N"),
-        ("chamfer_distance", "фаска"),
+        ("count", "шт"),
         ("fillet_radius", "R"),
+        ("pilot_diameter", "pilot Ø"),
+        ("counterbore_diameter", "цековка Ø"),
     ):
-        if key in p and p[key] is not None:
-            if label == "Ø":
-                bits.append(f"Ø{_num(p[key])}")
-            elif label in ("PCD", "N", "R"):
-                bits.append(f"{label} {_num(p[key])}")
-            else:
-                bits.append(f"{label} {_num(p[key])} мм")
-    if p.get("through_all") in (True, "true", "1"):
-        bits.append("сквозное")
-    if p.get("pattern") and str(p["pattern"]) != "none":
-        bits.append(f"массив {p['pattern']}")
+        if p.get(key) is not None:
+            bits.append(f"{label} {_num(p[key])}")
     note = (feat.get("notes") or "").strip()
     if note and len(note) < 90 and "{" not in note:
         bits.append(note)
@@ -211,12 +221,12 @@ def format_spec_for_user(spec: Dict[str, Any]) -> str:
             lines.append(f"⚠ {w[:120]}")
 
     lines.append("")
-    lines.append("Если верно — «Строить». Если нет — размеры текстом.")
+    lines.append('Если верно — «Строить». Если нет — размеры текстом.')
     return "\n".join(lines)
 
 
 def spec_to_task_text(spec: Dict[str, Any]) -> str:
-    """ТЗ для кодогена: план + фичи. Без слов-триггеров в boilerplate."""
+    """ТЗ для кодогена: план + фичи + construction."""
     lines: List[str] = []
     ptype = str(spec.get("part_type") or "other")
     name = spec.get("name") or ptype
@@ -228,13 +238,21 @@ def spec_to_task_text(spec: Dict[str, Any]) -> str:
         "Правило: solid_contour=body; dashed/hidden/centerline ≠ наружный контур"
     )
 
+    construction = spec.get("construction") or {}
+    order = construction.get("feature_order") or []
+    if order:
+        lines.append("feature_order=" + "->".join(str(x) for x in order))
+    for pl in construction.get("planes_used") or []:
+        lines.append(f"plane={pl}")
+    if construction.get("notes"):
+        lines.append(f"construction_notes={construction['notes']}")
+
     plan = spec.get("build_plan") or []
     if plan:
         lines.append("BUILD_PLAN:")
         for step in plan:
             lines.append(f"  - {step}")
     else:
-        # нейтрально, без «карман/отверстие/фаска» — иначе ложные требования к коду
         lines.append("ops_order=base,add_material,cuts,patterns,edges")
 
     drawing = spec.get("drawing") or {}
@@ -252,7 +270,7 @@ def spec_to_task_text(spec: Dict[str, Any]) -> str:
         ftype = str(feat.get("type") or "")
         if ftype:
             feat_types.append(ftype)
-        p = _flatten_params(feat.get("params"))
+        p = _flatten_params(feat.get("params"), ftype)
         lines.append(f"feature={ftype}")
         if feat.get("depends_on"):
             lines.append(f"depends_on={feat['depends_on']}")
@@ -270,6 +288,8 @@ def spec_to_task_text(spec: Dict[str, Any]) -> str:
         lines.append("forbid=rectangle_as_main_body")
     if ptype == "bushing":
         lines.append("втулка")
+    if ptype == "cover":
+        lines.append("крышка")
 
     if feat_types:
         lines.append("required_features=" + ",".join(feat_types))
