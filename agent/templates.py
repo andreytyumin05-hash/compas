@@ -1,13 +1,13 @@
-"""Шаблоны только для совсем простых одношаговых ТЗ. Иначе None → LLM."""
+"""Простые шаблоны без LLM. Сложное → None."""
 
 from __future__ import annotations
 
 import re
-from typing import Optional, Tuple
+from typing import Optional
 
 
-def _norm(text: str) -> str:
-    t = (text or "").replace("\r", "").replace("\n", " ")
+def _norm(task: str) -> str:
+    t = (task or "").replace("\r", "").replace("\n", " ")
     t = t.replace("×", "x").replace("х", "x")
     t = re.sub(r"(?<=\d)\?(?=\d)", "x", t)
     return re.sub(r"\s+", " ", t).strip()
@@ -27,7 +27,6 @@ def try_template(task: str) -> Optional[str]:
     )
     low = t.lower()
 
-    # Есть план / много фич / vision-спека → только LLM
     if any(
         w in low
         for w in (
@@ -51,7 +50,6 @@ def try_template(task: str) -> Optional[str]:
     if low.count("ø") + low.count("диаметр") >= 2:
         return None
 
-    # Втулка простая
     if "втулк" in low or "bushing" in low:
         m = re.search(
             r"наружн\w*\s*(\d+(?:\.\d+)?).*внутр\w*\s*(\d+(?:\.\d+)?).*длин\w*\s*(\d+(?:\.\d+)?)",
@@ -63,14 +61,19 @@ def try_template(task: str) -> Optional[str]:
                 return (
                     "from core import Part\n\n"
                     'part = Part.create("Втулка")\n'
+                    f'part.var("D", {outer}, comment="наружный Ø")\n'
+                    f'part.var("d", {inner}, comment="внутренний Ø")\n'
+                    f'part.var("L", {length}, comment="длина")\n'
+                    'part.set_properties(name="Втулка", designation="Bushing")\n'
                     'with part.sketch("xy") as sk:\n'
                     f"    sk.circle(0, 0, {outer/2})\n"
                     f"part.extrude(sk, depth={length})\n"
                     f"part.hole(0, 0, diameter={inner}, through_all=True)\n"
                     "part.update()\n"
+                    'part.set_view("iso")\n'
+                    'part.screenshot("_tpl_iso.png")\n'
                 )
 
-    # Одна плита без бобышек
     if ("плит" in low or "plate" in low) and "бобыш" not in low and "карман" not in low:
         m = re.search(r"(\d+(?:\.\d+)?)\s*[xх]\s*(\d+(?:\.\d+)?)", t, re.I)
         thick = _f("thickness", t) or _f("толщин", t) or 8.0
@@ -79,6 +82,10 @@ def try_template(task: str) -> Optional[str]:
             return (
                 "from core import Part\n\n"
                 'part = Part.create("Плита")\n'
+                f'part.var("L", {L}, comment="длина")\n'
+                f'part.var("W", {W}, comment="ширина")\n'
+                f'part.var("T", {thick}, comment="толщина")\n'
+                'part.set_properties(name="Плита")\n'
                 'with part.sketch("xy") as sk:\n'
                 f"    sk.rectangle({-L/2}, {-W/2}, {L}, {W})\n"
                 f"part.extrude(sk, depth={thick})\n"

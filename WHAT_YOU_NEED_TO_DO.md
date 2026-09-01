@@ -1,18 +1,15 @@
-# Catch-up готов на remote
+# Visual loop max — pull
 
 ```powershell
 git fetch origin
 git checkout feature/visual-fluent-v2
 git pull origin feature/visual-fluent-v2
 
-python -m agent.dry_run --self-test
-python -m unittest tests.test_visual_and_vars tests.test_offline_dry_run -v
+python -m unittest tests.test_visual_loop tests.test_visual_and_vars tests.test_offline_dry_run -v
 
-# live
+# КОМПАС + GEMINI_API_KEY в .env
 python -m agent.build "Втулка наружный 40 внутренний 20 длина 50"
 ```
 
-Смотри сгенерированный код: `var`, `set_properties`, `set_view`, `screenshot`.
-После build можно в скрипте: `part.verify("out")`.
-
-Подробности: `docs/HABR_MCP_CATCHUP.md`
+В логе ищи `👁 VLM critic` или `visual loop: ok`.
+Отключить VLM: `$env:COMPAS_VISUAL_LOOP=0`
