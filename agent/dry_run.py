@@ -1,17 +1,7 @@
 """
 Офлайн-проверка кода агента БЕЗ КОМПАС.
 
-Печатает:
-- синтаксис / validate
-- покрытие фич ТЗ
-- структуру (critic)
-- список вызовов part.*
-- краткий «план операций»
-
-Примеры:
-  python -m agent.dry_run --task "Втулка наружный 40 внутренний 20 длина 50" --code-file script.py
-  python -m agent.dry_run --task "..." --code "from core import Part\n..."
-  python -m agent.dry_run --self-test
++ visual loop / var / properties (Habr + MCP)
 """
 
 from __future__ import annotations
@@ -34,7 +24,8 @@ from .critic import (
     unknown_part_calls,
 )
 from .templates import try_template
-from .validate import validate_generated_code
+from .validate import validate_generated_code, critic_warnings
+from .verify import offline_verify_report
 
 
 def analyze(task: str, code: str) -> Dict[str, Any]:
@@ -45,6 +36,8 @@ def analyze(task: str, code: str) -> Dict[str, Any]:
     calls = extract_part_calls(code)
     unknown = unknown_part_calls(code)
     ops = summarize_ops(code)
+    soft = critic_warnings(code, task)
+    vrep = offline_verify_report(task, code)
 
     issues: List[str] = []
     if not ok_syn:
@@ -54,8 +47,8 @@ def analyze(task: str, code: str) -> Dict[str, Any]:
     if missing:
         issues.append("не хватает по ТЗ: " + ", ".join(missing))
     issues.extend(structural)
+    issues.extend(vrep.get("hard_issues") or [])
 
-    # «команды для компаса» — последовательность вызовов
     timeline = []
     for line in code.splitlines():
         s = line.strip()
@@ -67,6 +60,8 @@ def analyze(task: str, code: str) -> Dict[str, Any]:
     return {
         "ok": len(issues) == 0,
         "issues": list(dict.fromkeys(issues)),
+        "soft_warnings": soft,
+        "verify": vrep,
         "part_calls": calls,
         "unknown_methods": unknown,
         "ops_count": ops,
@@ -81,17 +76,31 @@ def format_report(task: str, code: str, result: Dict[str, Any]) -> str:
         f"ТЗ: {task[:200]}{'…' if len(task) > 200 else ''}",
         f"Строк кода: {result['code_lines']}",
         f"Вызовы part: {', '.join(result['part_calls']) or '—'}",
+        f"Route: {result.get('verify', {}).get('route', '—')}",
     ]
     if result["unknown_methods"]:
         lines.append("⚠ неизвестные методы: " + ", ".join(result["unknown_methods"]))
     lines.append("Счётчики: " + json.dumps(result["ops_count"], ensure_ascii=False))
+    checks = (result.get("verify") or {}).get("checks") or {}
+    if checks:
+        lines.append(
+            "Verify: "
+            + ", ".join(f"{k}={'✓' if v else '✗'}" for k, v in checks.items())
+        )
     lines.append("")
     lines.append("Последовательность команд:")
     for i, cmd in enumerate(result["timeline"], 1):
         lines.append(f"  {i:02d}. {cmd}")
     lines.append("")
+    if result.get("soft_warnings"):
+        lines.append("Мягкие (Habr/MCP):")
+        for w in result["soft_warnings"]:
+            lines.append(f"  ⚠ {w}")
+        lines.append("")
     if result["ok"]:
-        lines.append("OK — структура выглядит допустимой (КОМПАС не запускался).")
+        lines.append("OK — структура допустима (КОМПАС не запускался).")
+        if result.get("soft_warnings"):
+            lines.append("Рекомендация: добавить var/properties/screenshot перед live.")
     else:
         lines.append("FAIL:")
         for e in result["issues"]:
@@ -124,7 +133,7 @@ with part.sketch("xy") as sk:
 part.extrude(sk, depth=10)
 part.update()
 """,
-            False,  # rectangle вместо цилиндров
+            False,
         ),
         (
             "BUILD_PLAN ступени пробка",
@@ -149,20 +158,27 @@ part.update()
         print(f"[{status}] expect_ok={expect_ok} got={r['ok']} issues={r['issues'][:2]}")
         if r["ok"] != expect_ok:
             failed += 1
-    # шаблон простой втулки
     tmpl = try_template("Втулка наружный 40 внутренний 20 длина 50")
     if not tmpl or "hole" not in tmpl:
         print("[FAIL] try_template втулка")
         failed += 1
     else:
         print("[OK] try_template втулка")
-    # сложное ТЗ не должно ловиться шаблоном-коробкой
     t2 = try_template("BUILD_PLAN\nfeature=step\nпробка Ø50 Ø30")
     if t2 is not None:
         print("[FAIL] сложное ТЗ не должно давать шаблон:", t2[:80])
         failed += 1
     else:
         print("[OK] сложное ТЗ → template None")
+    # soft warnings present for bushing without var
+    r = analyze(
+        "Втулка наружный 40 внутренний 20 длина 50",
+        tmpl or "",
+    )
+    if not r.get("soft_warnings"):
+        print("[WARN] ожидались soft_warnings для втулки без var — ок если template уже с var")
+    else:
+        print("[OK] soft_warnings:", r["soft_warnings"][:2])
     return 1 if failed else 0
 
 

@@ -1,9 +1,9 @@
-"""Mixin-методы Part: var, properties, view, screenshot."""
+"""Mixin-методы Part: var, properties, view, screenshot, verify."""
 
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from . import visual as _visual
 
@@ -40,3 +40,14 @@ class FluentMixin:
         self, path: str | Path, *, width: int = 1280, height: int = 720
     ) -> Optional[Path]:
         return _visual.screenshot(self, path, width=width, height=height)
+
+    def verify(
+        self,
+        out_dir: str | Path = "session_verify",
+        *,
+        views: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        """После update: iso+front screenshots (live visual loop)."""
+        from agent.verify import live_verify
+
+        return live_verify(self, out_dir, views=views or ["iso", "front"])
