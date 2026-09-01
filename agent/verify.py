@@ -1,36 +1,21 @@
-"""
-Цепочка верификации (Habr visual loop + MCP operator).
-
-Offline: только эвристики по коду.
-Live: set_view + screenshot (+ mass) после update.
-"""
+"""Верификация offline + live (top/iso для плоских деталей)."""
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 from .validate import critic_warnings
 
 
 def code_has_visual_loop(code: str) -> bool:
     c = code or ""
-    return any(
-        x in c
-        for x in (
-            "screenshot(",
-            "set_view(",
-            "get_context(",
-            "# visual",
-            "# VLM",
-        )
-    )
+    return any(x in c for x in ("screenshot(", "set_view(", "get_context(", "# visual"))
 
 
 def code_has_variables(code: str) -> bool:
     c = code or ""
-    return "part.var(" in c or ".var(" in c or "set_variable(" in c
+    return "part.var(" in c or ".var(" in c
 
 
 def code_has_properties(code: str) -> bool:
@@ -38,7 +23,6 @@ def code_has_properties(code: str) -> bool:
 
 
 def offline_verify_report(task: str, code: str) -> Dict[str, Any]:
-    """Отчёт для dry-run / CI без КОМПАС."""
     warns = critic_warnings(code, task)
     checks = {
         "syntax_import": "from core import Part" in (code or "")
@@ -47,21 +31,25 @@ def offline_verify_report(task: str, code: str) -> Dict[str, Any]:
         "variables": code_has_variables(code),
         "properties": code_has_properties(code),
         "visual_loop": code_has_visual_loop(code),
+        "stadium_if_cover": True,
     }
+    t = (task or "").lower()
+    c = (code or "").lower()
+    if ("крышк" in t or "stadium" in t or "оваль" in t) and "stadium(" not in c and "rounded_rect(" not in c:
+        checks["stadium_if_cover"] = False
+
     hard = []
     if not checks["syntax_import"]:
         hard.append("нет from core import Part / Part.create")
     if not checks["update"]:
         hard.append("нет part.update()")
 
-    # routing hint
-    t = (task or "").lower()
-    if any(w in t for w in ("чертёж", "чертеж", "drawing", "вид спереди", "разрез")):
-        route = "drawing2model — отдельный vision→plan→code, не один ReAct-блок"
-    elif any(w in t for w in ("build_plan", "ступен", "пробк", "feature=")):
-        route = "complex: BUILD_PLAN + visual loop + var"
+    if any(w in t for w in ("чертёж", "чертеж", "drawing")):
+        route = "drawing2model"
+    elif any(w in t for w in ("крышк", "stadium", "цеков", "бобыш")):
+        route = "complex cover: stadium + boss + counterbore"
     else:
-        route = "simple: direct Part API"
+        route = "simple"
 
     return {
         "checks": checks,
@@ -78,13 +66,10 @@ def live_verify(
     *,
     views: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
-    """
-    После построения: 2 ракурса + screenshot.
-    COM best-effort; не бросает, если снимок не удался.
-    """
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    views = views or ["iso", "front"]
+    # top первым — отверстия на крышке
+    views = views or ["top", "iso"]
     shots: List[str] = []
     for i, v in enumerate(views):
         try:
@@ -94,10 +79,7 @@ def live_verify(
         path = out_dir / f"view_{i}_{v}.png"
         try:
             r = part.screenshot(path)
-            if r is not None:
-                shots.append(str(r))
-            else:
-                shots.append(str(path))  # intent even if COM failed
+            shots.append(str(r if r is not None else path))
         except Exception as e:
             shots.append(f"fail:{e}")
 
@@ -117,5 +99,5 @@ def live_verify(
         "shots": shots,
         "mass": mass,
         "context": {k: ctx[k] for k in list(ctx)[:20]} if isinstance(ctx, dict) else {},
-        "stale_note": "после update/rebuild/close refs считаются stale — перезапросить контекст",
+        "stale_note": "refs stale after update",
     }

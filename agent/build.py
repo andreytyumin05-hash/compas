@@ -1,6 +1,5 @@
 """
-Сборка в КОМПАС + visual loop (Habr):
-generate → COM → screenshot iso/front → VLM critic → optional repair.
+Сборка + короткий visual loop (без зависаний на 7 минут).
 """
 
 from __future__ import annotations
@@ -9,6 +8,7 @@ import os
 import re
 import sys
 import tempfile
+import time
 from pathlib import Path
 from typing import List, Optional, Tuple
 
@@ -37,23 +37,22 @@ def execute_code(code: str) -> None:
 
 
 def _ensure_visual_tail(code: str) -> str:
-    """Если агент забыл screenshot — добавим хвост verify (не ломает синтаксис)."""
     c = code or ""
     if "screenshot(" in c or "part.verify(" in c:
         return c
     if "part.update()" not in c:
         return c
+    # top + iso — для крышек отверстия сверху
     tail = (
-        "\n# auto visual loop\n"
+        "\n# auto visual\n"
         "try:\n"
+        "    part.set_view('top')\n"
+        "    part.screenshot('_auto_top.png')\n"
         "    part.set_view('iso')\n"
         "    part.screenshot('_auto_iso.png')\n"
-        "    part.set_view('front')\n"
-        "    part.screenshot('_auto_front.png')\n"
         "except Exception:\n"
         "    pass\n"
     )
-    # после последнего update
     idx = c.rfind("part.update()")
     if idx < 0:
         return c + tail
@@ -66,13 +65,19 @@ def _collect_shots(verify_result: dict, work: Path) -> List[Path]:
     for s in verify_result.get("shots") or []:
         if isinstance(s, str) and not s.startswith("fail:"):
             p = Path(s)
-            if p.exists():
+            if p.exists() and p.stat().st_size > 80:
                 shots.append(p)
-    for name in ("_auto_iso.png", "_auto_front.png", "view_0_iso.png", "view_1_front.png"):
-        p = work / name if not Path(name).is_absolute() else Path(name)
-        # also cwd
-        for cand in (p, Path.cwd() / name, work / name):
-            if cand.exists() and cand not in shots:
+    for name in (
+        "_auto_top.png",
+        "_auto_iso.png",
+        "_auto_front.png",
+        "view_0_top.png",
+        "view_0_iso.png",
+        "view_1_iso.png",
+        "view_1_front.png",
+    ):
+        for cand in (work / name, Path.cwd() / name):
+            if cand.exists() and cand.stat().st_size > 80 and cand not in shots:
                 shots.append(cand)
     return shots
 
@@ -94,13 +99,16 @@ def run_task(
     normalized = " ".join(normalized.split())
 
     if visual_loop is None:
-        visual_loop = os.getenv("COMPAS_VISUAL_LOOP", "1").strip() not in (
-            "0",
-            "false",
-            "no",
+        # по умолчанию ВЫКЛ тяжёлый VLM в боте — иначе 7+ минут зависаний
+        # включить: COMPAS_VISUAL_LOOP=1
+        visual_loop = os.getenv("COMPAS_VISUAL_LOOP", "0").strip().lower() in (
+            "1",
+            "true",
+            "yes",
         )
 
     agent = Agent()
+    t0 = time.time()
     code, errors = agent.generate_checked(normalized)
     if errors or must_fix_holes(code):
         raise RuntimeError(
@@ -115,28 +123,29 @@ def run_task(
     last_err: Optional[BaseException] = None
     final = code
     work = Path(tempfile.mkdtemp(prefix="compas_vis_"))
+    vlm_budget = float(os.getenv("COMPAS_VLM_TIMEOUT_SEC", "45"))
 
     for attempt in range(max_com_retries):
         try:
             execute_code(final)
-            # visual loop
-            if visual_loop:
+            if visual_loop and (time.time() - t0) < 300:
                 try:
                     from core import Part
 
                     part = Part.from_active()
-                    vres = live_verify(part, work / "shots", views=["iso", "front"])
+                    vres = live_verify(
+                        part, work / "shots", views=["top", "iso"]
+                    )
                     tree = snapshot_feature_tree(part)
                     shots = _collect_shots(vres, work / "shots")
-                    # cwd auto screenshots from injected tail
                     shots += _collect_shots({}, Path.cwd())
-                    issues = review_screenshots(normalized, final, shots)
+                    # жёсткий лимит на VLM
+                    issues: List[str] = []
+                    if shots and (time.time() - t0) < 240:
+                        issues = review_screenshots(normalized, final, shots)
                     if issues:
-                        print("  👁 VLM critic:", "; ".join(issues))
+                        print("  👁 VLM:", "; ".join(issues)[:200])
                         if attempt + 1 < max_com_retries:
-                            repair_errs = issues + [
-                                "Дерево:\n" + tree[:800]
-                            ]
                             raw = agent.llm.chat(
                                 [
                                     {
@@ -146,7 +155,9 @@ def run_task(
                                     {
                                         "role": "user",
                                         "content": build_repair_prompt(
-                                            normalized, final, repair_errs
+                                            normalized,
+                                            final,
+                                            issues + ["Дерево:\n" + tree[:600]],
                                         ),
                                     },
                                 ],
@@ -155,21 +166,14 @@ def run_task(
                             new_code = normalize_code(
                                 agent._extract_code(raw or "")
                             )
-                            ok, verr = validate_generated_code(new_code)
+                            ok, _ = validate_generated_code(new_code)
                             if ok and new_code.strip():
-                                good, crit = review_before_build(
-                                    normalized,
-                                    new_code,
-                                    llm=None,
-                                    use_llm=False,
-                                )
-                                if good or not crit:
-                                    final = _ensure_visual_tail(new_code)
-                                    continue  # re-exec
+                                final = _ensure_visual_tail(new_code)
+                                continue
                     else:
-                        print("  👁 visual loop: ok / skip")
+                        print("  👁 visual: ok/skip")
                 except Exception as ve:
-                    print(f"  👁 visual loop skip: {ve}")
+                    print(f"  👁 visual skip: {ve}")
 
             remember(task, final)
             return final
@@ -197,9 +201,7 @@ def run_task(
                 good, crit = review_before_build(
                     task, new_code, llm=None, use_llm=False
                 )
-                if good:
-                    final = _ensure_visual_tail(new_code)
-                elif not crit:
+                if good or not crit:
                     final = _ensure_visual_tail(new_code)
             except Exception:
                 pass

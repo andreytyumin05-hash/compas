@@ -1,19 +1,18 @@
-# Фикс бота (импорт core)
-
-Ошибка была:
-```
-TypeError: __bases__ assignment: 'FluentMixin' deallocator differs from 'object'
-```
-в `core/__init__.py` при `python -m bot`.
+# Фикс крышки + бот
 
 ```powershell
 git pull origin feature/visual-fluent-v2
 
-# проверка импорта без КОМПАС
-python -c "from bot.sessions import session_workspace; print('ok')"
+# VLM по умолчанию ВЫКЛ (не виснет 7 мин). Включить:
+# $env:COMPAS_VISUAL_LOOP="1"
 
 python -m bot
 ```
 
-В Telegram: фото чертежа → vision → кнопки Строить / Неверно.
-Нужны `TELEGRAM_BOT_TOKEN` и `GEMINI_API_KEY` в `.env`, КОМПАС на ПК.
+Фото крышки: vision план → код обязан stadium + 2×extrude + hole/counterbore.
+Скрины: **top + iso** (не side).
+
+Проверка offline:
+```powershell
+python -m agent.dry_run --task "Крышка stadium 116x80 толщина 13 бобышка цековка 6x" --code-file ...
+```
