@@ -37,6 +37,11 @@ edges = part.get_edges("all")
 part.fillet(edges, radius=r)
 part.chamfer(edges, distance=d)
 part.update()
+# Visual Fluent (желательно)
+part.var("D", 40, comment="нар. Ø")
+part.set_properties(name="...", designation="...")
+part.set_view("iso")
+part.screenshot("preview.png")  # Path|None
 ```
 '''
 
@@ -50,7 +55,8 @@ _LOGIC = '''
 5. Карман/шестигранник: polygon/pocket + cut(depth=...).
 6. Цековка → counterbore; канавка → ring_groove; фаски/скругления в конце + get_edges.
 7. После основных контуров можно dim_radial/dim_linear (не обязательно для успеха).
-8. Не подгонять под «типовую плиту».
+8. Ключевые размеры — part.var(...); свойства — set_properties; в конце set_view+screenshot.
+9. Не подгонять под «типовую плиту».
 '''
 
 _RULES = '''
@@ -83,7 +89,7 @@ def build_user_prompt(task: str) -> str:
     return (
         "Собери деталь по ТЗ и BUILD_PLAN. "
         "Массивы → pattern_*. Пунктир не контур. "
-        "Размеры эскиза (dim_*) желательны.\n\n"
+        "Размеры эскиза (dim_*) желательны. var/properties/screenshot — желательны.\n\n"
         f"ТЗ:\n{task.strip()}"
     )
 

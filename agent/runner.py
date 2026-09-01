@@ -14,7 +14,14 @@ from .critic import review_before_build
 from .llm import get_llm_client, BaseLLM
 from .prompts import get_system_prompt, build_user_prompt, build_repair_prompt
 from .templates import try_template
-from .validate import validate_generated_code
+from .validate import validate_generated_code, critic_warnings
+
+
+def _soft_warn(task: str, code: str) -> List[str]:
+    try:
+        return critic_warnings(code, task)
+    except Exception:
+        return []
 
 
 class Agent:
@@ -38,6 +45,8 @@ class Agent:
             if ok and not must_fix_holes(code) and not missing:
                 good, crit = review_before_build(task, code, llm=None, use_llm=False)
                 if good:
+                    for w in _soft_warn(task, code):
+                        print(f"  ⚠ {w}")
                     return code, []
 
         last_raw = ""
@@ -56,7 +65,9 @@ class Agent:
                     {"role": "system", "content": sys_p},
                     {
                         "role": "user",
-                        "content": build_repair_prompt(task, code, errors),
+                        "content": build_repair_prompt(
+                            task, code, errors + _soft_warn(task, code or "")
+                        ),
                     },
                 ]
             try:
@@ -79,7 +90,6 @@ class Agent:
                 ]
 
             if ok:
-                # структурный + LLM-критик до КОМПАС
                 good, crit = review_before_build(
                     task, code, llm=self.llm, use_llm=None
                 )
@@ -87,12 +97,16 @@ class Agent:
                     ok = False
                     errors = list(crit) if crit else ["критик отклонил код"]
                 else:
+                    for w in _soft_warn(task, code):
+                        print(f"  ⚠ {w}")
                     return code, []
 
         if not code.strip():
             return "", [
                 "модель не вернула код. " + repr((last_raw or "")[:200])
             ]
+        for w in _soft_warn(task, code or ""):
+            print(f"  ⚠ {w}")
         return code, errors
 
     @staticmethod
