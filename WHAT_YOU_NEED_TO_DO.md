@@ -1,15 +1,19 @@
-# Visual loop max — pull
+# Фикс бота (импорт core)
+
+Ошибка была:
+```
+TypeError: __bases__ assignment: 'FluentMixin' deallocator differs from 'object'
+```
+в `core/__init__.py` при `python -m bot`.
 
 ```powershell
-git fetch origin
-git checkout feature/visual-fluent-v2
 git pull origin feature/visual-fluent-v2
 
-python -m unittest tests.test_visual_loop tests.test_visual_and_vars tests.test_offline_dry_run -v
+# проверка импорта без КОМПАС
+python -c "from bot.sessions import session_workspace; print('ok')"
 
-# КОМПАС + GEMINI_API_KEY в .env
-python -m agent.build "Втулка наружный 40 внутренний 20 длина 50"
+python -m bot
 ```
 
-В логе ищи `👁 VLM critic` или `visual loop: ok`.
-Отключить VLM: `$env:COMPAS_VISUAL_LOOP=0`
+В Telegram: фото чертежа → vision → кнопки Строить / Неверно.
+Нужны `TELEGRAM_BOT_TOKEN` и `GEMINI_API_KEY` в `.env`, КОМПАС на ПК.

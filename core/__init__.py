@@ -6,17 +6,26 @@ from .sketch import Sketch
 from .exceptions import KompasError, KompasNotRunningError
 from .part_fluent import FluentMixin
 
-# Подмешиваем Visual Fluent, даже если class Part в part.py без наследования
-if not issubclass(Part, FluentMixin):
-    Part.__bases__ = (FluentMixin,) + Part.__bases__
+# Нельзя делать Part.__bases__ = (FluentMixin,) + ... на CPython/Windows:
+# TypeError: __bases__ assignment: 'FluentMixin' deallocator differs from 'object'
+# Копируем методы на класс — бот и agent импортируют core без падения.
+for _name in (
+    "var",
+    "set_properties",
+    "get_context",
+    "set_view",
+    "screenshot",
+    "verify",
+):
+    if not hasattr(Part, _name) and hasattr(FluentMixin, _name):
+        setattr(Part, _name, getattr(FluentMixin, _name))
 
-# контекст по умолчанию
 _orig_init = Part.__init__
 
 
 def _fluent_init(self, *args, **kwargs):
     _orig_init(self, *args, **kwargs)
-    if not hasattr(self, "_fluent_ctx") or self._fluent_ctx is None:
+    if not hasattr(self, "_fluent_ctx") or getattr(self, "_fluent_ctx", None) is None:
         self._fluent_ctx = {}
 
 
@@ -31,4 +40,4 @@ __all__ = [
     "KompasNotRunningError",
 ]
 
-__version__ = "0.3.0-visual-fluent"
+__version__ = "0.3.1-visual-fluent"
