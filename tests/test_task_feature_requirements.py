@@ -1,6 +1,8 @@
 import unittest
 
 from agent.code_fix import check_task_feature_requirements
+from agent.validate import validate_generated_code
+from core.ops_registry import unsupported_part_methods
 
 
 class TaskFeatureRequirementsTest(unittest.TestCase):
@@ -21,9 +23,7 @@ part.extrude(sk2, depth=20)
 part.pattern_holes_circular((0, 0), pcd=50, count=4, diameter=8)
 part.update()
 """
-
         missing = check_task_feature_requirements(task, code)
-
         self.assertIn("pocket", " ".join(missing))
         self.assertIn("fillet", " ".join(missing))
 
@@ -37,9 +37,7 @@ with part.sketch('xy') as sk:
 part.extrude(sk, depth=10)
 part.update()
 """
-
         missing = check_task_feature_requirements(task, code)
-
         self.assertIn("step", " ".join(missing))
         self.assertIn("slot", " ".join(missing))
 
@@ -65,22 +63,28 @@ part.fillet(radius=2)
 part.chamfer(size=1)
 part.update()
 """
-
         missing = check_task_feature_requirements(task, code)
-
         self.assertNotIn("feature_tree", " ".join(missing))
         self.assertNotIn("pocket", " ".join(missing))
         self.assertNotIn("hole", " ".join(missing))
         self.assertNotIn("fillet", " ".join(missing))
         self.assertNotIn("chamfer", " ".join(missing))
 
-    def test_shell_and_thread_are_safe_fallbacks(self):
-        from core import Part
-
-        part = Part.create('Тест')
-        part.shell(thickness=1.5)
-        part.thread(x=0, y=0, diameter=8, pitch=1.5, length=10)
-        part.update()
+    def test_shell_and_thread_are_unsupported(self):
+        for name in ("shell", "thread", "sketch_on_face"):
+            self.assertIn(name, unsupported_part_methods())
+        code = """
+from core import Part
+part = Part.create('X')
+with part.sketch('xy') as sk:
+    sk.circle(0,0,10)
+part.extrude(sk, depth=5)
+part.shell(thickness=1)
+part.update()
+"""
+        ok, err = validate_generated_code(code)
+        self.assertFalse(ok)
+        self.assertTrue(any("shell" in e for e in err))
 
 
 if __name__ == "__main__":
