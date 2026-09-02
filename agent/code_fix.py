@@ -1,4 +1,4 @@
-"""Нормализация кода + проверка покрытия ТЗ (без ложных срабатываний)."""
+"""Code normalization and deterministic task-coverage checks."""
 
 from __future__ import annotations
 
@@ -9,156 +9,115 @@ from typing import List, Set
 
 
 def normalize_code(code: str) -> str:
-    code = code.replace("\r\n", "\n").replace("\t", "    ").strip()
+    value = (code or "").replace("\r\n", "\n").replace("\t", "    ").strip()
+    value = re.sub(r"^\s*```(?:python)?\s*", "", value, flags=re.I)
+    value = re.sub(r"\s*```\s*$", "", value)
     try:
-        ded = textwrap.dedent(code)
-        if _can_parse(ded):
-            return ded.strip() + "\n"
-    except Exception:
-        pass
-    return code if code.endswith("\n") else code + "\n"
-
-
-def _can_parse(code: str) -> bool:
-    try:
-        ast.parse(code)
-        return True
+        ded = textwrap.dedent(value)
+        ast.parse(ded)
+        return ded.strip() + "\n"
     except SyntaxError:
-        return False
+        return value + ("\n" if value and not value.endswith("\n") else "")
 
 
 def semantic_warnings(code: str) -> List[str]:
-    return []
-
-
-def must_fix_holes(code: str) -> bool:
-    lower = code.lower()
-    if (
-        "rectangle(" in lower
-        and "circle(" in lower
-        and "cut(" not in lower
-        and "hole(" not in lower
-    ):
-        return True
-    return False
+    """Non-blocking warnings for suspicious but not necessarily invalid code."""
+    warnings: List[str] = []
+    low = (code or "").lower()
+    if "part.extrude(" in low and low.count("part.extrude(") == 1 and "cylindrical_steps" in low:
+        warnings.append("цилиндрическая ступенчатая деталь имеет только одно extrude")
+    if "dim_" not in low:
+        warnings.append("в скрипте нет размерных annotations; редактирование будет менее наглядным")
+    return warnings
 
 
 def _feature_types_from_task(task: str) -> Set[str]:
-    found = set()
-    for m in re.finditer(r"feature\s*=\s*([a-z_]+)", task or "", flags=re.I):
-        found.add(m.group(1).lower())
-    m = re.search(r"required_features\s*=\s*([a-z_,\s]+)", task or "", flags=re.I)
-    if m:
-        for part in m.group(1).split(","):
-            p = part.strip().lower()
-            if p:
-                found.add(p)
+    found: Set[str] = set()
+    for match in re.finditer(r"(?:^|\n)\s*(?:[FS]\w+\s*:\s*)?feature\s*=\s*([a-z_]+)", task or "", flags=re.I):
+        found.add(match.group(1).lower())
+    for match in re.finditer(r"required_features\s*=\s*([a-z_,\s]+)", task or "", flags=re.I):
+        found.update(x.strip().lower() for x in match.group(1).split(",") if x.strip())
     return found
+
+
+def _method_present(code: str, *names: str) -> bool:
+    low = (code or "").lower()
+    return any(re.search(rf"\bpart\.{re.escape(name)}\s*\(", low) for name in names)
 
 
 def check_task_feature_requirements(task: str, code: str) -> List[str]:
     low_t = (task or "").lower()
     low_c = (code or "").lower()
-    missing: List[str] = []
-
     if not low_t.strip() or not low_c.strip():
-        return missing
+        return []
 
-    filtered_lines = []
-    for ln in low_t.splitlines():
-        s = ln.strip()
-        if s.startswith("ops_order="):
+    lines = []
+    for line in low_t.splitlines():
+        s = line.strip()
+        if s.startswith(("rule:", "правило:", "ops_order=", "порядок:")):
             continue
-        if s.startswith("правило:"):
-            continue
-        if s.startswith("порядок:"):
-            continue
-        filtered_lines.append(s)
-    low_t = "\n".join(filtered_lines)
+        lines.append(s)
+    low_t = "\n".join(lines)
 
     feats = _feature_types_from_task(task)
+    missing: List[str] = []
 
-    def has_hole_ops() -> bool:
-        return any(x in low_c for x in ("hole(", "pattern_holes"))
-
-    def has_pocket_ops() -> bool:
-        # pattern_holes ≠ карман
-        return any(
-            x in low_c for x in ("cut(", "pocket(", "ring_groove(", "groove(")
-        ) or ("polygon(" in low_c and "cut(" in low_c)
-
-    if feats & {"pocket", "hex_pocket", "recess"}:
-        if not has_pocket_ops():
-            missing.append("pocket")
-        elif feats & {"hex_pocket"} and "polygon(" not in low_c and "hex_" not in low_c:
-            if "cut(" not in low_c and "pocket(" not in low_c:
-                missing.append("hex_pocket")
+    def require(ok: bool, label: str) -> None:
+        if not ok:
+            missing.append(label)
 
     if feats & {"hole", "pattern_holes"}:
-        if not has_hole_ops() and "cut(" not in low_c:
-            missing.append("hole")
-
-    if feats & {"groove"}:
-        if "ring_groove(" not in low_c and "groove(" not in low_c:
-            if not (low_c.count("circle(") >= 2 and "cut(" in low_c):
-                missing.append("groove")
-
-    if feats & {"counterbore"}:
-        if "counterbore(" not in low_c:
-            if low_c.count("hole(") + low_c.count("cut(") < 2:
-                missing.append("counterbore")
-
-    if feats & {"chamfer"} and "chamfer(" not in low_c:
-        missing.append("chamfer")
-    if feats & {"fillet"} and "fillet(" not in low_c:
-        missing.append("fillet")
-
+        require(_method_present(low_c, "hole", "pattern_holes_circular", "pattern_holes_linear", "pattern_holes_points", "pattern_holes_rect", "hole_list"), "hole")
+    if feats & {"pocket", "hex_pocket"}:
+        if feats & {"hex_pocket"}:
+            require(_method_present(low_c, "pocket", "cut") and ("polygon(" in low_c or "hex_boss(" in low_c or "hex_pocket" in low_c), "hex_pocket")
+        else:
+            require(_method_present(low_c, "pocket", "cut"), "pocket")
+    if "groove" in feats:
+        require(_method_present(low_c, "ring_groove", "groove") or (low_c.count("circle(") >= 2 and "part.cut(" in low_c), "groove")
+    if "counterbore" in feats:
+        require(_method_present(low_c, "counterbore"), "counterbore")
+    if "countersink" in feats:
+        require(_method_present(low_c, "countersink"), "countersink")
+    if "chamfer" in feats:
+        require(_method_present(low_c, "chamfer", "chamfer_edge"), "chamfer")
+    if "fillet" in feats:
+        require(_method_present(low_c, "fillet", "fillet_edge"), "fillet")
     if feats & {"slot", "keyway"}:
-        if "slot(" not in low_c and "keyway(" not in low_c:
-            missing.append("slot")
+        require(_method_present(low_c, "slot", "keyway"), "slot/keyway")
+    if feats & {"boss"}:
+        require(_method_present(low_c, "boss", "hex_boss"), "boss")
+    if feats & {"step", "extrude_body"}:
+        require(_method_present(low_c, "extrude", "step", "boss"), "base/additive feature")
 
-    if feats & {"step", "boss"} or "body_style=cylindrical_steps" in low_t:
-        n_ext = low_c.count("extrude(") + low_c.count("part.step(") + low_c.count("part.boss(")
-        if n_ext < 2:
-            missing.append("несколько extrude (ступени)")
+    cylindrical = "body_style=cylindrical_steps" in low_t or any(
+        word in low_t for word in ("пробк", "штуцер", "shaft", "вал")
+    )
+    if cylindrical and any(word in low_t for word in ("ступен", "step=")):
+        n_add = low_c.count("part.extrude(") + low_c.count("part.step(") + low_c.count("part.boss(") + low_c.count("part.hex_boss(")
+        if n_add < 2:
+            missing.append("multiple additive steps")
+    if cylindrical and "part.extrude(" not in low_c and "part.step(" not in low_c and "part.boss(" not in low_c:
+        missing.append("cylindrical base")
 
+    # Free-form text path, used for manual Telegram descriptions.
     if not feats:
-        if any(w in low_t for w in ("карман", "шестигранн", "углублен")):
-            if not has_pocket_ops():
-                missing.append("pocket")
-        if any(w in low_t for w in ("отверст", "крепежн")):
-            if not has_hole_ops() and "cut(" not in low_c:
-                missing.append("hole")
-        if any(w in low_t for w in ("канавк", "проточк")):
-            if "ring_groove(" not in low_c and "groove(" not in low_c:
-                if not (low_c.count("circle(") >= 2 and "cut(" in low_c):
-                    missing.append("groove")
-        if re.search(r"\bфаск", low_t) or "chamfer" in low_t:
-            if "chamfer(" not in low_c:
-                missing.append("chamfer")
-        if re.search(r"\bскругл", low_t) or "fillet" in low_t:
-            if "fillet(" not in low_c:
-                missing.append("fillet")
-        if any(w in low_t for w in ("паз", "шпоноч")):
-            if "slot(" not in low_c and "keyway(" not in low_c:
-                missing.append("slot")
-        if any(w in low_t for w in ("ступен", "уступ", "пробк")) or re.search(
-            r"\bвал\b", low_t
-        ):
-            if low_c.count("extrude(") < 2 and "step(" not in low_c:
-                missing.append("несколько extrude (ступени)")
-
-        rich = any(
-            w in low_t
-            for w in ("ступен", "бобыш", "карман", "отверст", "фаск", "скругл")
-        )
-        if (
-            rich
-            and low_c.count("extrude(") <= 1
-            and not has_pocket_ops()
-            and not has_hole_ops()
-            and "step(" not in low_c
-        ):
-            missing.append("feature_tree")
+        if any(word in low_t for word in ("отверст", "крепеж")):
+            require(_method_present(low_c, "hole", "pattern_holes_circular", "pattern_holes_linear", "pattern_holes_points", "pattern_holes_rect", "hole_list"), "hole")
+        if any(word in low_t for word in ("карман", "углублен", "выборк")):
+            require(_method_present(low_c, "pocket", "cut"), "pocket")
+        if any(word in low_t for word in ("канавк", "проточк")):
+            require(_method_present(low_c, "ring_groove", "groove") or (low_c.count("circle(") >= 2 and "part.cut(" in low_c), "groove")
+        if "фаск" in low_t or "chamfer" in low_t:
+            require(_method_present(low_c, "chamfer", "chamfer_edge"), "chamfer")
+        if "скругл" in low_t or "fillet" in low_t:
+            require(_method_present(low_c, "fillet", "fillet_edge"), "fillet")
+        if "шпоноч" in low_t or re.search(r"\bпаз\b", low_t):
+            require(_method_present(low_c, "slot", "keyway"), "slot/keyway")
 
     return list(dict.fromkeys(missing))
+
+
+def must_fix_holes(code: str) -> bool:
+    """Compatibility shim: real coverage checking is now task-aware."""
+    return False
