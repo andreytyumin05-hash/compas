@@ -1,100 +1,94 @@
-"""Статическая проверка кода."""
+"""Static safety and API-contract validation for generated CAD scripts."""
 
 from __future__ import annotations
 
 import ast
 import re
-from typing import List, Tuple
+from typing import List, Set, Tuple
 
-_ALLOWED_IMPORT = re.compile(r"^\s*from\s+core\s+import\s+Part\s*$")
-_NEG_NUM = re.compile(
-    r"(?:depth|diameter|radius|width|height|pcd)\s*=\s*-\s*\d",
-    re.I,
-)
-_ZERO_DEPTH = re.compile(r"extrude\s*\([^)]*depth\s*=\s*0\s*[,)]", re.I)
-_PROSE = re.compile(
-    r"\b(we need|the user|produce only|corrected code|here is|let's|i will)\b",
-    re.I,
-)
+_ALLOWED_FROM = {("core", "Part")}
+_PART_METHODS = {
+    "create", "sketch", "sketch_on_face", "extrude", "cut", "revolve", "get_edges",
+    "chamfer", "fillet", "fillet_edge", "chamfer_edge", "hole", "pattern_holes_circular",
+    "pattern_holes_rect", "pattern_holes_points", "pattern_holes_linear", "hole_list",
+    "mirror_points", "slot", "step", "boss", "hex_boss", "ring_groove", "groove",
+    "keyway", "pocket", "counterbore", "countersink", "export", "export_formats", "close",
+    "mass_properties", "update", "shell", "thread", "name",
+}
+_SKETCH_METHODS = {
+    "circle", "line", "arc", "rectangle", "rounded_rect", "stadium", "ellipse", "polygon",
+    "polyline", "arc_by_points", "spline", "bezier", "slot", "dim_linear", "dim_radial", "dim_rect",
+}
+_FORBIDDEN_NAMES = {"win32com", "pythoncom", "gencache", "Dispatch", "GetActiveObject"}
+_FORBIDDEN_CALLS = {"loft", "sweep"}
+_NEG_NUM = re.compile(r"(?:depth|diameter|radius|width|height|pcd|length|thickness)\s*=\s*-\s*\d", re.I)
+
+
+def _call_name(node: ast.Call) -> Tuple[str | None, str | None]:
+    if isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name):
+        return node.func.value.id, node.func.attr
+    return None, None
+
+
+def _literal_part_create(call: ast.Call) -> bool:
+    owner, method = _call_name(call)
+    return owner == "Part" and method == "create"
 
 
 def validate_generated_code(code: str) -> Tuple[bool, List[str]]:
     errors: List[str] = []
-
     if not code or not code.strip():
         return False, ["пустой код"]
 
-    if _PROSE.search(code) and "Part.create" not in code:
-        return False, ["английская проза вместо Python"]
-
     try:
-        ast.parse(code)
-    except SyntaxError as e:
-        return False, [f"синтаксис: {e}"]
+        tree = ast.parse(code)
+    except SyntaxError as exc:
+        return False, [f"синтаксис: {exc}"]
 
-    has_import = False
-    has_create = "Part.create" in code
+    part_creates = 0
+    part_updates = 0
+    imports_checked = False
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                errors.append(f"запрещённый import: {alias.name}")
+        elif isinstance(node, ast.ImportFrom):
+            imports_checked = True
+            module = node.module or ""
+            names = tuple(alias.name for alias in node.names)
+            if (module, names[0] if len(names) == 1 else "") not in _ALLOWED_FROM:
+                errors.append(f"разрешён только `from core import Part`, найдено: from {module} import {', '.join(names)}")
+        elif isinstance(node, ast.Call):
+            owner, method = _call_name(node)
+            if owner == "Part" and method == "create":
+                part_creates += 1
+            if owner == "part" and method == "update":
+                part_updates += 1
+            if owner == "part" and method:
+                if method not in _PART_METHODS:
+                    errors.append(f"неизвестный part.{method}() — такого метода нет в core")
+            if owner == "sk" and method and method not in _SKETCH_METHODS:
+                errors.append(f"неизвестный sk.{method}() — такого метода нет в core")
+            if method in _FORBIDDEN_CALLS:
+                errors.append(f"запрещена операция: {method}()")
+        elif isinstance(node, ast.Name) and node.id in _FORBIDDEN_NAMES:
+            errors.append(f"запрещённый COM-доступ: {node.id}")
 
-    for line in code.splitlines():
-        s = line.strip()
-        if not s or s.startswith("#"):
-            continue
-        if s.startswith("import ") and "core" not in s:
-            errors.append(f"запрещённый import: {s}")
-        if s.startswith("from ") and not s.startswith("from core import"):
-            errors.append(f"запрещённый from: {s}")
-        if _ALLOWED_IMPORT.match(line):
-            has_import = True
-
-    if not has_import:
-        errors.append("нужен: from core import Part")
-    if not has_create:
+    if not imports_checked:
+        errors.append("нужен импорт: from core import Part")
+    if part_creates == 0:
         errors.append("ожидается Part.create(...)")
-
-    for b in ("win32com", "gencache", "Dispatch", "GetActiveObject"):
-        if b in code:
-            errors.append(f"запрещено: {b}")
+    elif part_creates > 1:
+        errors.append("Part.create(...) должен вызываться один раз для одной детали")
+    if part_updates == 0:
+        errors.append("нужен part.update() в конце построения")
 
     if _NEG_NUM.search(code):
         errors.append("отрицательный размер")
-    if _ZERO_DEPTH.search(code):
-        errors.append("extrude depth=0")
+    if "import " in code and "from core import Part" in code:
+        # Defensive check: generated scripts should not contain a second import.
+        import_lines = [line.strip() for line in code.splitlines() if line.strip().startswith("import ")]
+        if import_lines:
+            errors.extend(f"запрещённый import: {line}" for line in import_lines)
 
-    return (len(errors) == 0, errors)
-
-
-def critic_warnings(code: str, task: str = "") -> List[str]:
-    """
-    Мягкие предупреждения Visual Fluent (не блокируют build).
-    - нет part.var при нескольких размерах в ТЗ
-    - нет set_properties
-    - нет screenshot / set_view на сложных задачах
-    """
-    warnings: List[str] = []
-    c = code or ""
-    t = (task or "").lower()
-
-    if not c.strip():
-        return warnings
-
-    n_var = c.count("part.var(") + c.count(".var(")
-    has_props = "set_properties(" in c
-    has_shot = "screenshot(" in c
-    has_view = "set_view(" in c
-
-    # несколько чисел в ТЗ → желательны переменные
-    nums = re.findall(r"\b\d{1,4}(?:[.,]\d+)?\b", t)
-    if len(nums) >= 3 and n_var == 0:
-        warnings.append("желательно part.var(...) для ключевых размеров")
-
-    if len(t) > 40 and not has_props:
-        warnings.append("желательно part.set_properties(designation=..., name=...)")
-
-    complexish = any(
-        w in t
-        for w in ("build_plan", "ступен", "пробк", "feature=", "карман", "бобыш")
-    )
-    if complexish and not has_shot and not has_view:
-        warnings.append("желательно set_view + screenshot для visual loop")
-
-    return warnings
+    return (len(set(errors)) == 0, list(dict.fromkeys(errors)))

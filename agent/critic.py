@@ -47,11 +47,6 @@ KNOWN_PART_METHODS = frozenset(
         "update",
         "shell",
         "thread",
-        "var",
-        "set_properties",
-        "get_context",
-        "set_view",
-        "screenshot",
     }
 )
 
@@ -126,8 +121,6 @@ def summarize_ops(code: str) -> Dict[str, int]:
         "pocket(",
         "counterbore(",
         "ring_groove(",
-        "var(",
-        "screenshot(",
     )
     return {k.rstrip("("): c.lower().count(k.lower()) for k in keys}
 
@@ -139,6 +132,7 @@ def review_structure(task: str, code: str) -> List[str]:
     if not c.strip():
         return ["пустой код"]
 
+    # не смотреть boilerplate
     t_lines = [
         ln
         for ln in t.splitlines()

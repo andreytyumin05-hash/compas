@@ -1,4 +1,4 @@
-"""Схема чертежа: features + план построения для LLM."""
+"""Drawing schema and user-facing formatting."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional
 FEATURE_SCHEMA_TEXT = """
 {
   "part_type": "bushing|flange|plate|shaft|cover|bracket|plug|other",
-  "name": "строка",
+  "name": "string",
   "units": "mm",
   "axis": "Z|X|Y",
   "overall": {
@@ -17,73 +17,53 @@ FEATURE_SCHEMA_TEXT = """
   },
   "drawing": {
     "views": ["main|top|side|section"],
-    "solid_lines": "видимый контур детали",
-    "dashed_lines": "скрытый контур / оси — НЕ строить как наружную стенку",
-    "centerlines": "оси симметрии, PCD",
-    "notes": "что пунктир означает на этом чертеже"
-  },
-  "construction": {
-    "feature_order": ["base", "boss", "pocket", "pattern_holes", "fillet"],
-    "planes_used": ["xy", "xz"],
-    "notes": ""
+    "solid_lines": "visible solid contour",
+    "dashed_lines": "hidden geometry; never an outer contour",
+    "centerlines": "axes, symmetry, PCD references",
+    "notes": "drawing interpretation notes"
   },
   "build_plan": [
-    "1. База: ...",
-    "2. Ступень: ...",
-    "3. Карман/отверстия массивом: ...",
-    "4. Фаски: ..."
+    {
+      "id": "S01",
+      "type": "extrude_body|boss|step|hole|pattern_holes|pocket|hex_pocket|groove|counterbore|countersink|slot|keyway|chamfer|fillet|revolve",
+      "params": {},
+      "depends_on": "S00"
+    }
   ],
   "features": [
     {
-      "type": "extrude_body|boss|step|hole|pattern_holes|pocket|hex_pocket|groove|counterbore|countersink|chamfer|fillet|slot|keyway",
+      "id": "F01",
+      "type": "extrude_body|boss|step|hole|pattern_holes|pocket|hex_pocket|groove|counterbore|countersink|chamfer|fillet|slot|keyway|revolve",
       "params": {
         "diameter": null, "length": null, "width": null, "height": null,
         "depth": null, "thickness": null, "pcd": null, "count": null,
         "x": null, "y": null, "shape": null, "through_all": null,
         "pilot_diameter": null, "counterbore_diameter": null,
-        "outer_diameter": null, "inner_diameter": null,
-        "fillet_radius": null, "chamfer_distance": null,
-        "boss_height": null, "pocket_depth": null,
+        "counterbore_depth": null, "outer_diameter": null,
+        "inner_diameter": null, "fillet_radius": null,
+        "chamfer_distance": null, "angle_deg": null,
         "pattern": "circular|linear|points|none"
       },
-      "depends_on": "после какой фичи (текстом)",
-      "notes": "кратко по-русски"
+      "depends_on": "F00",
+      "notes": "short engineering note"
     }
   ],
-  "patterns_hint": [
-    "6 отверстий Ø8 на PCD 82 → pattern_holes_circular"
-  ],
+  "patterns_hint": ["N x Ød on PCD ..."],
   "unknown_dimensions": [],
   "warnings": []
 }
 """.strip()
 
 _TYPE_RU = {
-    "bushing": "втулка",
-    "flange": "фланец",
-    "plate": "плита",
-    "shaft": "вал",
-    "cover": "крышка",
-    "bracket": "кронштейн",
-    "plug": "пробка",
-    "other": "деталь",
+    "bushing": "втулка", "flange": "фланец", "plate": "плита", "shaft": "вал",
+    "cover": "крышка", "bracket": "кронштейн", "plug": "пробка", "other": "деталь",
 }
-
 _FEAT_RU = {
-    "extrude_body": "основное тело",
-    "boss": "бобышка",
-    "step": "ступень",
-    "hole": "отверстие",
-    "pattern_holes": "массив отверстий",
-    "pocket": "карман",
-    "hex_pocket": "шестигранное углубление",
-    "groove": "канавка",
-    "counterbore": "цековка",
-    "countersink": "зенковка",
-    "fillet": "скругление",
-    "chamfer": "фаска",
-    "slot": "паз",
-    "keyway": "шпоночный паз",
+    "extrude_body": "основное тело", "boss": "бобышка", "step": "ступень",
+    "hole": "отверстие", "pattern_holes": "массив отверстий", "pocket": "карман",
+    "hex_pocket": "шестигранное углубление", "groove": "канавка",
+    "counterbore": "цековка", "countersink": "зенковка", "fillet": "скругление",
+    "chamfer": "фаска", "slot": "паз", "keyway": "шпоночный паз", "revolve": "вращение",
 }
 
 
@@ -92,64 +72,44 @@ def _num(v: Any) -> Optional[str]:
         return None
     try:
         f = float(v)
-        if abs(f - int(f)) < 1e-9:
-            return str(int(f))
-        return f"{f:g}"
+        return str(int(f)) if f.is_integer() else f"{f:g}"
     except Exception:
         return str(v)
 
 
-def _flatten_params(params: Any, ftype: str = "") -> Dict[str, Any]:
+def _flatten_params(params: Any) -> Dict[str, Any]:
     if not isinstance(params, dict):
         return {}
     out: Dict[str, Any] = {}
-    for k, v in params.items():
-        if v is None:
+    for key, value in params.items():
+        if value is None:
             continue
-        if isinstance(v, (int, float, str, bool)):
-            key = str(k)
-            # канонические имена для critic/codegen
-            if key == "depth" and ftype == "pocket":
-                key = "pocket_depth"
-            elif key == "height" and ftype == "boss":
-                key = "boss_height"
-            elif key == "radius" and ftype == "fillet":
-                key = "fillet_radius"
-            elif key == "depth" and ftype == "counterbore":
-                key = "counterbore_depth"
-            out[key] = v
-        elif isinstance(v, dict):
-            for k2, v2 in v.items():
-                if isinstance(v2, (int, float, str, bool)):
-                    out[f"{k}_{k2}"] = v2
+        if isinstance(value, (int, float, str, bool)):
+            out[str(key)] = value
     return out
 
 
 def _feat_human(feat: Dict[str, Any]) -> str:
-    ftype = str(feat.get("type") or "")
-    title = _FEAT_RU.get(ftype, ftype or "элемент")
-    p = _flatten_params(feat.get("params"), ftype)
+    title = _FEAT_RU.get(str(feat.get("type") or ""), str(feat.get("type") or "элемент"))
+    p = _flatten_params(feat.get("params"))
     bits: List[str] = []
-    for key, label in (
-        ("diameter", "Ø"),
-        ("length", "длина"),
-        ("width", "ширина"),
-        ("height", "высота"),
-        ("boss_height", "высота бобышки"),
-        ("depth", "глубина"),
-        ("pocket_depth", "глубина кармана"),
-        ("thickness", "толщина"),
-        ("pcd", "PCD"),
-        ("count", "шт"),
-        ("fillet_radius", "R"),
-        ("pilot_diameter", "pilot Ø"),
-        ("counterbore_diameter", "цековка Ø"),
-    ):
-        if p.get(key) is not None:
-            bits.append(f"{label} {_num(p[key])}")
-    note = (feat.get("notes") or "").strip()
-    if note and len(note) < 90 and "{" not in note:
-        bits.append(note)
+    for key, label in (("diameter", "Ø"), ("length", "длина"), ("width", "ширина"),
+                       ("height", "высота"), ("depth", "глубина"), ("pcd", "PCD"),
+                       ("count", "N"), ("chamfer_distance", "фаска"),
+                       ("fillet_radius", "R"), ("thickness", "толщина")):
+        if key in p:
+            value = _num(p[key])
+            if label in {"Ø", "PCD", "N", "R"}:
+                bits.append(f"{label}{value}" if label == "Ø" else f"{label} {value}")
+            else:
+                bits.append(f"{label} {value} мм")
+    if p.get("through_all") in (True, "true", "1"):
+        bits.append("сквозное")
+    if p.get("pattern") and str(p["pattern"]) != "none":
+        bits.append(f"массив {p['pattern']}")
+    note = str(feat.get("notes") or "").strip()
+    if note:
+        bits.append(note[:90])
     return f"• {title}: " + ", ".join(bits) if bits else f"• {title}"
 
 
@@ -157,144 +117,55 @@ def format_spec_for_user(spec: Dict[str, Any]) -> str:
     units = spec.get("units") or "мм"
     ptype = str(spec.get("part_type") or "other")
     name = spec.get("name") or _TYPE_RU.get(ptype, "деталь")
-
-    lines: List[str] = [
-        "Распознал так:",
-        "",
-        f"Деталь: {name} ({_TYPE_RU.get(ptype, ptype)})",
-    ]
+    lines: List[str] = ["Распознал так:", "", f"Деталь: {name} ({_TYPE_RU.get(ptype, ptype)})"]
     if spec.get("axis"):
         lines.append(f"Ось: {spec['axis']}")
 
     overall = spec.get("overall") or {}
-    dim_bits = []
-    if overall.get("length") is not None and overall.get("width") is not None:
-        dim_bits.append(
-            f"габарит {_num(overall['length'])}×{_num(overall['width'])} {units}"
-        )
-    for k, lab in (
-        ("thickness", "толщина"),
-        ("total_height", "общая высота"),
-        ("outer_diameter", "Ø нар."),
-        ("inner_diameter", "Ø вн."),
-        ("length", "длина"),
-    ):
-        if overall.get(k) is not None and not (
-            k == "length" and overall.get("width") is not None
-        ):
-            dim_bits.append(f"{lab} {_num(overall[k])} {units}")
-    if dim_bits:
-        lines.append("Размеры: " + "; ".join(dim_bits))
+    dims: List[str] = []
+    for key, label in (("length", "длина"), ("width", "ширина"), ("height", "высота"),
+                       ("thickness", "толщина"), ("total_height", "общая высота"),
+                       ("outer_diameter", "Ø нар."), ("inner_diameter", "Ø вн.")):
+        if overall.get(key) is not None:
+            dims.append(f"{label} {_num(overall[key])} {units}")
+    if dims:
+        lines.append("Размеры: " + "; ".join(dims))
 
     plan = spec.get("build_plan") or []
     if plan:
-        lines.append("")
-        lines.append("План построения:")
-        for step in plan[:12]:
-            s = str(step).strip()
-            if s:
-                lines.append(f"  {s}" if s[0].isdigit() else f"  • {s}")
-    else:
-        lines.append("")
-        lines.append("Элементы:")
-        for f in spec.get("features") or []:
-            lines.append(_feat_human(f))
+        lines.extend(["", "План построения:"])
+        for step in plan[:16]:
+            if isinstance(step, dict):
+                sid = step.get("id") or "S?"
+                stype = step.get("type") or "feature"
+                params = _flatten_params(step.get("params"))
+                summary = ", ".join(f"{k}={_num(v) if isinstance(v, (int, float)) else v}" for k, v in params.items())
+                lines.append(f"  {sid}: {stype}" + (f" ({summary})" if summary else ""))
+            elif str(step).strip():
+                lines.append(f"  {str(step).strip()}")
+    elif spec.get("features"):
+        lines.extend(["", "Элементы:"])
+        lines.extend(_feat_human(f) for f in spec["features"][:16])
 
     drawing = spec.get("drawing") or {}
-    if drawing.get("dashed_lines") or drawing.get("notes"):
-        lines.append("")
-        lines.append(
-            "Чертёж: пунктир/оси — не наружный контур; "
-            + str(drawing.get("notes") or drawing.get("dashed_lines") or "")[:120]
-        )
+    if drawing.get("dashed_lines") or drawing.get("centerlines") or drawing.get("notes"):
+        lines.extend(["", "Чертёж: пунктир/оси не являются наружным контуром."])
+        note = drawing.get("notes") or drawing.get("dashed_lines") or drawing.get("centerlines")
+        if note:
+            lines.append(str(note)[:180])
 
-    hints = spec.get("patterns_hint") or []
-    if hints:
-        lines.append("Массивы: " + "; ".join(str(h)[:80] for h in hints[:4]))
-
-    unk = spec.get("unknown_dimensions") or []
-    if unk:
-        lines.append("Не прочитано: " + ", ".join(str(u) for u in unk[:8]))
-
-    for w in (spec.get("warnings") or [])[:3]:
-        if w and isinstance(w, str):
-            lines.append(f"⚠ {w[:120]}")
-
-    lines.append("")
-    lines.append('Если верно — «Строить». Если нет — размеры текстом.')
+    if spec.get("patterns_hint"):
+        lines.append("Массивы: " + "; ".join(str(x)[:100] for x in spec["patterns_hint"][:4]))
+    if spec.get("unknown_dimensions"):
+        lines.append("Не прочитано: " + ", ".join(str(x) for x in spec["unknown_dimensions"][:8]))
+    if spec.get("warnings"):
+        for warning in spec["warnings"][:3]:
+            lines.append(f"⚠ {str(warning)[:160]}")
+    lines.extend(["", "Если всё верно — «Строить». Иначе укажите исправление размерами текстом."])
     return "\n".join(lines)
 
 
 def spec_to_task_text(spec: Dict[str, Any]) -> str:
-    """ТЗ для кодогена: план + фичи + construction."""
-    lines: List[str] = []
-    ptype = str(spec.get("part_type") or "other")
-    name = spec.get("name") or ptype
-    lines.append(f"Деталь: {name} (тип {ptype})")
-    if spec.get("axis"):
-        lines.append(f"axis={spec['axis']}")
-
-    lines.append(
-        "Правило: solid_contour=body; dashed/hidden/centerline ≠ наружный контур"
-    )
-
-    construction = spec.get("construction") or {}
-    order = construction.get("feature_order") or []
-    if order:
-        lines.append("feature_order=" + "->".join(str(x) for x in order))
-    for pl in construction.get("planes_used") or []:
-        lines.append(f"plane={pl}")
-    if construction.get("notes"):
-        lines.append(f"construction_notes={construction['notes']}")
-
-    plan = spec.get("build_plan") or []
-    if plan:
-        lines.append("BUILD_PLAN:")
-        for step in plan:
-            lines.append(f"  - {step}")
-    else:
-        lines.append("ops_order=base,add_material,cuts,patterns,edges")
-
-    drawing = spec.get("drawing") or {}
-    for k in ("dashed_lines", "centerlines", "notes"):
-        if drawing.get(k):
-            lines.append(f"drawing_{k}={drawing[k]}")
-
-    overall = spec.get("overall") or {}
-    for k, v in overall.items():
-        if v is not None:
-            lines.append(f"{k}={v}")
-
-    feat_types: List[str] = []
-    for feat in spec.get("features") or []:
-        ftype = str(feat.get("type") or "")
-        if ftype:
-            feat_types.append(ftype)
-        p = _flatten_params(feat.get("params"), ftype)
-        lines.append(f"feature={ftype}")
-        if feat.get("depends_on"):
-            lines.append(f"depends_on={feat['depends_on']}")
-        for key, val in p.items():
-            if isinstance(val, (int, float, str, bool)) and str(val):
-                lines.append(f"{key}={val}")
-        if feat.get("notes"):
-            lines.append(str(feat["notes"]))
-
-    for h in spec.get("patterns_hint") or []:
-        lines.append(f"pattern_hint={h}")
-
-    if ptype in ("shaft", "plug") or "пробк" in str(name).lower():
-        lines.append("body_style=cylindrical_steps")
-        lines.append("forbid=rectangle_as_main_body")
-    if ptype == "bushing":
-        lines.append("втулка")
-    if ptype == "cover":
-        lines.append("крышка")
-
-    if feat_types:
-        lines.append("required_features=" + ",".join(feat_types))
-
-    unk = spec.get("unknown_dimensions") or []
-    if unk:
-        lines.append("НЕИЗВЕСТНЫЕ: " + ", ".join(str(u) for u in unk))
-    return "\n".join(lines)
+    """Compatibility wrapper; the canonical contract is now shared with codegen."""
+    from .contract import spec_to_contract_text
+    return spec_to_contract_text(spec)
