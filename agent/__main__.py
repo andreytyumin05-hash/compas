@@ -1,4 +1,4 @@
-"""Позволяет запускать: python -m agent "описание детали""""
+"""Запуск: python -m agent description."""
 
 from .runner import main
 
