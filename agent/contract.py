@@ -1,4 +1,4 @@
-"""Canonical contract between drawing vision and CAD code generation."""
+"""Canonical contract between language/vision planning and CAD code generation."""
 
 from __future__ import annotations
 
@@ -6,22 +6,25 @@ import math
 from copy import deepcopy
 from typing import Any, Dict, List, Mapping
 
+
 KNOWN_FEATURES = {
     "extrude_body", "boss", "step", "hole", "pattern_holes", "pocket",
     "hex_pocket", "groove", "counterbore", "countersink", "chamfer",
-    "fillet", "slot", "keyway", "revolve",
+    "fillet", "slot", "keyway", "revolve", "spline_profile",
 }
 
 POSITIVE_KEYS = {
     "diameter", "length", "width", "height", "depth", "thickness", "pcd", "radius",
     "fillet_radius", "chamfer_distance", "pilot_diameter", "counterbore_diameter",
-    "counterbore_depth", "inner_diameter", "outer_diameter", "pitch",
+    "counterbore_depth", "inner_diameter", "outer_diameter", "pitch", "count",
 }
 
 ALIASES = {
     "circular_pattern": "pattern_holes", "hole_pattern": "pattern_holes",
     "recess": "pocket", "threaded_hole": "hole", "thread": "hole",
     "chamfer_edge": "chamfer", "fillet_edge": "fillet",
+    "spline": "spline_profile", "bezier": "spline_profile",
+    "blade_profile": "spline_profile", "airfoil": "spline_profile",
 }
 
 
@@ -53,7 +56,7 @@ def _clean_params(params: Any) -> Dict[str, Any]:
             value = _num(raw_value)
             if isinstance(value, (int, float)) and value <= 0:
                 continue
-        elif key in {"x", "y", "angle_deg", "start_angle_deg"}:
+        elif key in {"x", "y", "z", "angle_deg", "start_angle_deg"}:
             value = _num(raw_value)
         else:
             value = raw_value
@@ -61,15 +64,11 @@ def _clean_params(params: Any) -> Dict[str, Any]:
     return out
 
 
-def _canonical_type(value: Any) -> str:
-    raw = str(value or "").strip().lower()
-    return ALIASES.get(raw, raw)
-
-
 def _clean_feature(item: Any, index: int) -> Dict[str, Any] | None:
     if not isinstance(item, Mapping):
         return None
-    ftype = _canonical_type(item.get("type"))
+    raw_type = str(item.get("type") or "").strip().lower()
+    ftype = ALIASES.get(raw_type, raw_type)
     if ftype not in KNOWN_FEATURES:
         return None
     result: Dict[str, Any] = {
@@ -77,8 +76,9 @@ def _clean_feature(item: Any, index: int) -> Dict[str, Any] | None:
         "type": ftype,
         "params": _clean_params(item.get("params")),
     }
-    if item.get("depends_on"):
-        result["depends_on"] = str(item["depends_on"]).strip()
+    for key in ("depends_on", "sketch", "body", "parameter_group"):
+        if item.get(key):
+            result[key] = str(item[key]).strip()
     if item.get("notes"):
         result["notes"] = str(item["notes"]).strip()[:300]
     return result
@@ -91,7 +91,8 @@ def _clean_plan(plan: Any, features: List[Dict[str, Any]]) -> List[Dict[str, Any
             if isinstance(item, Mapping):
                 p = deepcopy(dict(item))
                 p["id"] = str(p.get("id") or f"S{index:02d}")
-                p["type"] = _canonical_type(p.get("type"))
+                raw_type = str(p.get("type") or "").strip().lower()
+                p["type"] = ALIASES.get(raw_type, raw_type)
                 p["params"] = _clean_params(p.get("params"))
                 if p.get("depends_on"):
                     p["depends_on"] = str(p["depends_on"]).strip()
@@ -104,15 +105,16 @@ def _clean_plan(plan: Any, features: List[Dict[str, Any]]) -> List[Dict[str, Any
                 "id": f"S{index:02d}",
                 "type": feature["type"],
                 "params": dict(feature.get("params") or {}),
-                "depends_on": feature.get("depends_on"),
+                **({"depends_on": feature["depends_on"]} if feature.get("depends_on") else {}),
             })
-    return result[:32]
+    return result[:48]
 
 
 def _features_from_plan(plan: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     features: List[Dict[str, Any]] = []
     for index, step in enumerate(plan, 1):
-        ftype = _canonical_type(step.get("type"))
+        raw_type = str(step.get("type") or "").strip().lower()
+        ftype = ALIASES.get(raw_type, raw_type)
         if ftype not in KNOWN_FEATURES:
             continue
         features.append({
@@ -124,8 +126,49 @@ def _features_from_plan(plan: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return features
 
 
+def _clean_named_parameters(value: Any) -> Dict[str, Any]:
+    if not isinstance(value, Mapping):
+        return {}
+    out: Dict[str, Any] = {}
+    for raw_name, raw_value in value.items():
+        name = str(raw_name).strip()
+        if not name or not name.replace("_", "a").isalnum() or name[0].isdigit():
+            continue
+        if isinstance(raw_value, Mapping):
+            item: Dict[str, Any] = {}
+            if "value" in raw_value:
+                v = _num(raw_value["value"])
+                if v is not None:
+                    item["value"] = v
+            if raw_value.get("expr"):
+                item["expr"] = str(raw_value["expr"]).strip()[:200]
+            if raw_value.get("note"):
+                item["note"] = str(raw_value["note"]).strip()[:200]
+            if item:
+                out[name] = item
+        else:
+            v = _num(raw_value)
+            if v is not None:
+                out[name] = {"value": v}
+    return out
+
+
+def _clean_relations(value: Any) -> List[Dict[str, str]]:
+    if not isinstance(value, list):
+        return []
+    out: List[Dict[str, str]] = []
+    for item in value:
+        if not isinstance(item, Mapping):
+            continue
+        left = str(item.get("left") or item.get("parameter") or "").strip()
+        expr = str(item.get("expr") or item.get("right") or "").strip()
+        if left and expr:
+            out.append({"left": left, "expr": expr[:200]})
+    return out[:64]
+
+
 def normalize_spec(spec: Any) -> Dict[str, Any]:
-    """Normalize legacy/new vision JSON into one stable CAD contract."""
+    """Normalize legacy/new text/vision JSON into one stable CAD contract."""
     if not isinstance(spec, Mapping):
         raise ValueError("Vision spec must be an object")
 
@@ -134,13 +177,20 @@ def normalize_spec(spec: Any) -> Dict[str, Any]:
         "name": str(spec.get("name") or "Деталь").strip()[:120],
         "units": str(spec.get("units") or "mm").strip().lower(),
         "axis": str(spec.get("axis") or "Z").strip().upper(),
-        "overall": {}, "drawing": {}, "features": [], "build_plan": [],
+        "overall": {},
+        "parameters": _clean_named_parameters(spec.get("parameters") or spec.get("params")),
+        "relations": _clean_relations(spec.get("relations") or spec.get("parameter_relations")),
+        "drawing": {},
+        "features": [],
+        "build_plan": [],
         "patterns_hint": [str(x).strip()[:180] for x in (spec.get("patterns_hint") or []) if str(x).strip()][:12],
         "unknown_dimensions": [str(x).strip()[:180] for x in (spec.get("unknown_dimensions") or []) if str(x).strip()][:20],
         "warnings": [str(x).strip()[:240] for x in (spec.get("warnings") or []) if str(x).strip()][:20],
     }
+
     overall = spec.get("overall") or {}
     out["overall"] = {str(k): _num(v) for k, v in overall.items() if v is not None and _num(v) is not None}
+
     drawing = spec.get("drawing") or {}
     for key in ("views", "solid_lines", "dashed_lines", "centerlines", "notes"):
         if drawing.get(key):
@@ -159,7 +209,7 @@ def normalize_spec(spec: Any) -> Dict[str, Any]:
         out["build_plan"] = _clean_plan([], out["features"])
 
     ptype = out["part_type"]
-    if ptype not in {"bushing", "flange", "plate", "shaft", "cover", "bracket", "plug", "other"}:
+    if ptype not in {"bushing", "flange", "plate", "shaft", "cover", "bracket", "plug", "blade", "fitting", "other"}:
         out["warnings"].append(f"unknown part_type={ptype!r}; using other")
         out["part_type"] = "other"
     if out["units"] not in {"mm", "мм"}:
@@ -177,13 +227,33 @@ def _fmt_value(value: Any) -> str:
 def spec_to_contract_text(spec: Mapping[str, Any]) -> str:
     s = normalize_spec(spec)
     lines = [
-        "CAD_CONTRACT v2",
+        "CAD_CONTRACT v3",
         f"part_type={s['part_type']}", f"name={s['name']}", f"units={s['units']}", f"axis={s['axis']}",
         "RULE: solid_lines=body; dashed/hidden/centerlines are not outer solid geometry",
         "RULE: preserve every measured feature; do not invent missing dimensions",
+        "RULE: important dimensions should be named parameters; derived positions should use parameter expressions",
         "",
-        "OVERALL:",
+        "PARAMETERS:",
     ]
+    for name, item in s["parameters"].items():
+        if isinstance(item, Mapping):
+            chunks = []
+            if "value" in item:
+                chunks.append(f"value={_fmt_value(item['value'])}")
+            if item.get("expr"):
+                chunks.append(f"expr={item['expr']}")
+            if item.get("note"):
+                chunks.append(f"note={item['note']}")
+            lines.append(f"{name}: " + ", ".join(chunks))
+    if not s["parameters"]:
+        lines.append("(none explicitly named; generator should create names for critical dimensions)")
+
+    if s["relations"]:
+        lines.append("PARAMETER_RELATIONS:")
+        for rel in s["relations"]:
+            lines.append(f"{rel['left']} = {rel['expr']}")
+
+    lines.extend(["", "OVERALL:"])
     lines += [f"{key}={_fmt_value(value)}" for key, value in s["overall"].items()]
     lines.append("BUILD_PLAN:")
     for step in s["build_plan"]:
@@ -205,6 +275,10 @@ def spec_to_contract_text(spec: Mapping[str, Any]) -> str:
         line = f"{feature['id']}: feature={feature['type']}" + (f" | {params}" if params else "")
         if feature.get("depends_on"):
             line += f" | depends_on={feature['depends_on']}"
+        if feature.get("sketch"):
+            line += f" | sketch={feature['sketch']}"
+        if feature.get("parameter_group"):
+            line += f" | parameter_group={feature['parameter_group']}"
         if feature.get("notes"):
             line += f" | note={feature['notes']}"
         lines.append(line)
@@ -213,8 +287,14 @@ def spec_to_contract_text(spec: Mapping[str, Any]) -> str:
         lines.append("UNKNOWN_DIMENSIONS=" + "; ".join(s["unknown_dimensions"]))
     if s["warnings"]:
         lines.append("VISION_WARNINGS=" + "; ".join(s["warnings"]))
-    if s["part_type"] in {"shaft", "plug"}:
+    if s["part_type"] in {"shaft", "plug", "fitting"}:
         lines += ["body_style=cylindrical_steps", "forbid=rectangle_as_main_body"]
+    if s["part_type"] == "blade":
+        lines += [
+            "body_style=curved_profile",
+            "prefer=spline_profile",
+            "forbid=polyline_as_spline_substitute",
+        ]
     return "\n".join(lines)
 
 
