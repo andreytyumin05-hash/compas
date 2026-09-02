@@ -1,18 +1,15 @@
-"""Генерация → проверки → критик → код."""
+"""Generate -> validate -> critique -> return CAD code."""
 
 from __future__ import annotations
 
+import ast
 import re
 from typing import List, Optional, Tuple
 
-from .code_fix import (
-    normalize_code,
-    must_fix_holes,
-    check_task_feature_requirements,
-)
+from .code_fix import check_task_feature_requirements, normalize_code, must_fix_holes
 from .critic import review_before_build
-from .llm import get_llm_client, BaseLLM
-from .prompts import get_system_prompt, build_user_prompt, build_repair_prompt
+from .llm import BaseLLM, get_llm_client
+from .prompts import build_repair_prompt, build_user_prompt, get_system_prompt
 from .templates import try_template
 from .validate import validate_generated_code
 
@@ -30,94 +27,98 @@ class Agent:
     def generate_checked(
         self, task: str, temperature: float = 0.1, max_retries: int = 3
     ) -> Tuple[str, List[str]]:
-        tmpl = try_template(task)
-        if tmpl:
-            code = normalize_code(tmpl)
-            ok, errors = validate_generated_code(code)
-            missing = check_task_feature_requirements(task, code)
-            if ok and not must_fix_holes(code) and not missing:
-                good, crit = review_before_build(task, code, llm=None, use_llm=False)
-                if good:
-                    return code, []
+        contract = task.strip()
+        template = try_template(contract)
+        if template:
+            code = normalize_code(template)
+            ok, errors = self._validate_all(contract, code)
+            if ok:
+                return code, []
 
-        last_raw = ""
         code = ""
-        errors: List[str] = ["пустой код"]
+        errors: List[str] = ["empty code"]
+        last_raw = ""
+        system_prompt = get_system_prompt(contract)
 
         for attempt in range(max_retries + 1):
-            sys_p = get_system_prompt(task)
             if attempt == 0:
                 messages = [
-                    {"role": "system", "content": sys_p},
-                    {"role": "user", "content": build_user_prompt(task)},
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": build_user_prompt(contract)},
                 ]
             else:
                 messages = [
-                    {"role": "system", "content": sys_p},
-                    {
-                        "role": "user",
-                        "content": build_repair_prompt(task, code, errors),
-                    },
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": build_repair_prompt(contract, code, errors)},
                 ]
             try:
-                last_raw = self.llm.chat(messages, temperature=0.1) or ""
-            except Exception as e:
-                errors = [f"LLM: {e}"]
+                last_raw = self.llm.chat(messages, temperature=temperature)
+            except Exception as exc:
+                errors = [f"LLM: {exc}"]
                 continue
 
             code = normalize_code(self._extract_code(last_raw))
-            ok, errors = validate_generated_code(code)
-            if ok and must_fix_holes(code):
-                ok = False
-                errors = list(errors) + ["отверстия без cut/hole"]
+            ok, errors = self._validate_all(contract, code)
+            if not ok:
+                continue
 
-            missing = check_task_feature_requirements(task, code)
-            if ok and missing:
-                ok = False
-                errors = list(errors) + [
-                    "не хватает операций: " + ", ".join(missing)
-                ]
-
-            if ok:
-                # структурный + LLM-критик до КОМПАС
-                good, crit = review_before_build(
-                    task, code, llm=self.llm, use_llm=None
-                )
-                if not good:
-                    ok = False
-                    errors = list(crit) if crit else ["критик отклонил код"]
-                else:
-                    return code, []
+            good, critic_errors = review_before_build(
+                contract,
+                code,
+                llm=self.llm,
+                use_llm=None,
+            )
+            if good:
+                return code, []
+            errors = critic_errors or ["critic rejected code"]
 
         if not code.strip():
-            return "", [
-                "модель не вернула код. " + repr((last_raw or "")[:200])
-            ]
+            return "", [f"model did not return code: {(last_raw or '')[:240]!r}"]
         return code, errors
 
     @staticmethod
+    def _validate_all(task: str, code: str) -> Tuple[bool, List[str]]:
+        ok, errors = validate_generated_code(code)
+        if not ok:
+            return False, errors
+        missing = check_task_feature_requirements(task, code)
+        if missing:
+            return False, ["missing operations: " + ", ".join(missing)]
+        if must_fix_holes(code):
+            return False, ["hole coverage validation failed"]
+        return True, []
+
+    @staticmethod
     def _extract_code(text: str) -> str:
+        """Extract the first syntactically valid CAD script, not model prose/reasoning."""
         if not text or not str(text).strip():
             return ""
-        text = str(text)
-        text = re.sub(r"<think>[\s\S]*?</think>", "", text, flags=re.I)
-        matches = re.findall(r"```(?:python)?\s*([\s\S]*?)```", text, flags=re.I)
-        if matches:
-            for block in reversed(matches):
-                if "Part" in block or "from core" in block:
-                    return block.strip()
-            return matches[-1].strip()
-        m = re.search(r"(from\s+core\s+import\s+Part[\s\S]+)", text, flags=re.I)
-        if m:
-            body = m.group(1).strip()
-            um = re.search(
-                r"(from\s+core\s+import\s+Part[\s\S]*?part\.update\s*\(\s*\))",
-                body,
-                flags=re.I,
+        raw = re.sub(r"<think>[\s\S]*?</think>", "", str(text), flags=re.I).strip()
+        blocks = re.findall(r"```(?:python|py)?\s*([\s\S]*?)```", raw, flags=re.I)
+        candidates = blocks or [raw]
+
+        for candidate in candidates:
+            code = candidate.strip()
+            marker = re.search(r"(?m)^\s*from\s+core\s+import\s+Part\s*$", code)
+            if marker:
+                code = code[marker.start():]
+            code = re.sub(r"\n(?:Explanation|Notes?|Here is|Corrected code)\s*:\s*[\s\S]*$", "", code, flags=re.I)
+            code = code.strip()
+            try:
+                tree = ast.parse(code)
+            except SyntaxError:
+                continue
+            has_create = any(
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and isinstance(node.func.value, ast.Name)
+                and node.func.value.id == "Part"
+                and node.func.attr == "create"
+                for node in ast.walk(tree)
             )
-            return (um.group(1) if um else body).strip()
-        if "Part.create" in text:
-            return text.strip()
+            if has_create:
+                return code
+
         return ""
 
 
@@ -128,17 +129,16 @@ def main() -> None:
 
     console = Console()
     if len(sys.argv) < 2:
-        console.print('[yellow]python -m agent.runner "описание"[/]')
-        sys.exit(1)
+        console.print('[yellow]python -m agent.runner "description"[/]')
+        raise SystemExit(1)
     task = " ".join(sys.argv[1:])
-    agent = Agent()
-    code, errors = agent.generate_checked(task)
+    code, errors = Agent().generate_checked(task)
     if code:
         console.print(Syntax(code, "python", theme="monokai", line_numbers=True))
     if errors:
-        for e in errors:
-            console.print(f"[red]• {e}[/]")
-        sys.exit(2)
+        for error in errors:
+            console.print(f"[red]• {error}[/]")
+        raise SystemExit(2)
     console.print("[green]OK[/]")
 
 
