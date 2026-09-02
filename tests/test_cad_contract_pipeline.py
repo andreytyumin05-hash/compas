@@ -1,4 +1,5 @@
 from agent.contract import normalize_spec, spec_to_contract_text
+from agent.contract_validate import validate_contract
 from agent.runner import Agent
 from agent.validate import validate_generated_code
 
@@ -20,6 +21,18 @@ def test_plan_only_spec_becomes_features():
     assert "CAD_CONTRACT v2" in text
     assert "body_style=cylindrical_steps" in text
     assert "F03: feature=pattern_holes" in text
+    errors, warnings = validate_contract(normalized)
+    assert errors == []
+    assert warnings == []
+
+
+def test_contract_rejects_impossible_diameters():
+    spec = normalize_spec({
+        "part_type": "bushing",
+        "features": [{"id": "F01", "type": "step", "params": {"outer_diameter": 20, "inner_diameter": 25}}],
+    })
+    errors, _ = validate_contract(spec)
+    assert any("inner_diameter" in e for e in errors)
 
 
 def test_validator_rejects_unknown_core_method():
@@ -31,7 +44,7 @@ part.update()
 '''
     ok, errors = validate_generated_code(code)
     assert not ok
-    assert any("unknown part.magic_operation" in e for e in errors)
+    assert any("неизвестный part.magic_operation" in e for e in errors)
 
 
 def test_validator_accepts_real_parameter_friendly_script():
