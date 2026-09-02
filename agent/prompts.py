@@ -1,4 +1,4 @@
-"""Prompts for deterministic vision-to-CAD code generation."""
+"""Prompts for deterministic text/vision to parametric KOMPAS CAD."""
 
 from .knowledge import load_patterns
 from .memory import few_shot_from_memory
@@ -7,6 +7,13 @@ _API = '''
 ## ONLY supported core API
 from core import Part
 part = Part.create("Name")
+
+# Named parameters. Critical dimensions must be named; derived positions use expressions.
+part.param("W", 100)
+part.param("HOLE_X", expr="W/2")
+W = part.p("W")
+HOLE_X = part.p("HOLE_X")
+
 with part.sketch("xy") as sk:
     sk.circle(x, y, radius)
     sk.rectangle(x, y, width, height)
@@ -16,9 +23,11 @@ with part.sketch("xy") as sk:
     sk.line(x1,y1,x2,y2)
     sk.arc(x1,y1,x2,y2,x3,y3)
     sk.slot(x1,y1,x2,y2,width)
-    sk.dim_radial(x, y, radius)      # best-effort annotation
-    sk.dim_linear(x1,y1,x2,y2)        # best-effort annotation
-    sk.dim_rect(x,y,width,height)     # best-effort annotation
+    sk.spline([(x1,y1), (x2,y2), (x3,y3), ...], closed=False)
+    sk.bezier([(x1,y1), (x2,y2), (x3,y3), ...], closed=False)
+    sk.dim_radial(x, y, radius)
+    sk.dim_linear(x1,y1,x2,y2)
+    sk.dim_rect(x,y,width,height)
 part.extrude(sk, depth=H)
 part.cut(sk, depth=D, through_all=False)
 part.cut(sk, through_all=True)
@@ -48,26 +57,32 @@ _RULES = '''
 ## Hard rules
 1. Output exactly one Python fenced block. No prose inside the block.
 2. Start with `from core import Part` and finish with `part.update()`.
-3. Build in dependency order: base -> added material -> cuts -> patterns -> edge finishing -> update.
-4. Every requested feature must have a real corresponding core operation. Never silently omit a feature.
-5. A shaft/plug is cylindrical: use circle+extrude / boss / step logic, never rectangle as the main body.
-6. Repeated holes: use a pattern operation. Different hole diameters: use separate hole/hole_list operations.
-7. A dashed/hidden/center line is reference information, never an outer solid contour.
-8. Do not invent unreadable dimensions. Keep unknown dimensions as comments only and do not guess values.
-9. Do not call `win32com`, `Dispatch`, `GetActiveObject`, `loft`, or `sweep` from generated code.
-10. Do not create a fake feature by returning None; the generated code must use the supported operation that changes the model.
-11. Put sketch dimensions immediately after the geometry they describe, but treat them as annotations: build must remain valid if a dim_* call returns False.
-12. Prefer named Python variables for important dimensions so the generated script is easy to edit, e.g. `D_BASE = 50`, `L_BASE = 10`.
+3. Treat the CAD_CONTRACT as authoritative. Preserve every explicit feature, dimension and dependency.
+4. Build in dependency order: base -> added material -> cuts -> patterns -> finishing -> update.
+5. Every requested feature must map to a real supported core operation. Never silently omit a feature.
+6. A shaft/plug/fitting body is cylindrical: use circle+extrude / boss / step logic, never rectangle as the main body.
+7. Repeated holes use pattern operations whenever they share diameter/placement logic.
+8. A dashed/hidden/center line is reference information, never outer solid geometry.
+9. Never invent a missing dimension. Preserve unknown dimensions as unknown and do not guess.
+10. Never call win32com/Dispatch/GetActiveObject/loft/sweep from generated code.
+11. shell, thread and sketch_on_face are unsupported in the current core and MUST NOT be generated.
+12. Important dimensions must be named with `part.param(name, ...)` and geometry should use `part.p(name)` rather than duplicated literals.
+13. Derived positions must be expressed from parameters when a mechanical relation is stated. Example: `part.param("HOLE_X", expr="W/2")`.
+14. Do not use a polyline as a substitute for a spline. `sk.spline`/`sk.bezier` must remain a real Bezier operation.
+15. Put dimension calls close to the geometry they describe. Dimension failure is not a reason to fake a successful geometry operation.
+16. For complex profiles, prefer a single coherent closed sketch made of line/arc/spline elements rather than many disconnected solids.
 '''
 
 _ORDER = '''
 ## Geometry strategy
-- First choose the minimum number of additive solids needed to reproduce the visible material. For stepped cylindrical parts, each distinct diameter/length is a separate additive feature.
+- First determine the design intent: body type, primary axis, sections, cuts, and edge finishing.
+- For stepped cylindrical parts, each distinct diameter/length is a separate additive feature unless a revolved profile is clearly more appropriate.
+- For a curved blade-like profile, build a real closed sketch from spline/arc/line segments and keep control points parameter-driven.
 - Use cuts for holes, pockets, slots, grooves, counterbores and countersinks.
-- Apply fillets/chamfers after the geometry they modify exists.
-- If a requested edge treatment is ambiguous, apply it only to the final feature edges and keep the operation explicit.
-- If the drawing contains several views, reconcile them before coding: main view gives axial lengths; top/section views give radial placement and hidden cuts.
-- Prefer one coherent feature tree over many unrelated temporary sketches.
+- Apply fillets/chamfers only after the target edges exist.
+- Reuse named parameters across features. Do not duplicate the same dimension as separate magic numbers.
+- When the contract states a relation such as `hole_offset = width/2`, encode the expression explicitly.
+- Keep the feature tree coherent and editable; avoid unrelated temporary bodies.
 '''
 
 
@@ -75,8 +90,8 @@ def get_system_prompt(task: str = "") -> str:
     mem = few_shot_from_memory(task) if task else ""
     return (
         "You are a CAD automation engineer for KOMPAS-3D v23. "
-        "The input is a canonical CAD_CONTRACT produced by a separate vision stage. "
-        "Treat the contract as authoritative and deterministic; do not reinterpret measurements as prose.\n\n"
+        "Generate an editable, deterministic parametric model from the supplied CAD contract. "
+        "The goal is engineering intent, not merely a visually plausible solid.\n\n"
         + _API
         + _RULES
         + _ORDER
@@ -89,7 +104,8 @@ def get_system_prompt(task: str = "") -> str:
 def build_user_prompt(task: str) -> str:
     return (
         "Generate the complete KOMPAS core script from this CAD_CONTRACT. "
-        "Preserve every feature and dependency. Use named dimension variables so the script is easy to edit.\n\n"
+        "First derive the feature dependency order and parameter relations mentally; output only the final code. "
+        "Use named parameters for all critical dimensions and expressions for stated relationships.\n\n"
         + task.strip()
     )
 
@@ -97,9 +113,10 @@ def build_user_prompt(task: str) -> str:
 def build_repair_prompt(task: str, bad_code: str, errors: list) -> str:
     err = "\n".join(f"- {e}" for e in errors) or "- validation failure"
     return (
-        "Repair the script against the CAD_CONTRACT. Return exactly one Python code block. "
-        "Do not remove requested features. Fix every listed issue.\n\n"
+        "Repair the script against the CAD_CONTRACT without deleting requested features. "
+        "Preserve named parameters and repair the smallest failing part of the feature tree. "
+        "Return exactly one Python code block.\n\n"
         f"VALIDATION ISSUES:\n{err}\n\n"
         f"CAD_CONTRACT:\n{task.strip()}\n\n"
-        f"CURRENT SCRIPT:\n```python\n{(bad_code or '')[:7000]}\n```\n"
+        f"CURRENT SCRIPT:\n```python\n{(bad_code or '')[:9000]}\n```\n"
     )
