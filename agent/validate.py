@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import ast
 import re
-from typing import List, Set, Tuple
+from typing import List, Tuple
 
 _ALLOWED_FROM = {("core", "Part")}
 _PART_METHODS = {
@@ -13,7 +13,8 @@ _PART_METHODS = {
     "pattern_holes_rect", "pattern_holes_points", "pattern_holes_linear", "hole_list",
     "mirror_points", "slot", "step", "boss", "hex_boss", "ring_groove", "groove",
     "keyway", "pocket", "counterbore", "countersink", "export", "export_formats", "close",
-    "mass_properties", "update", "shell", "thread", "name",
+    "mass_properties", "update", "shell", "thread", "name", "var", "set_properties",
+    "get_context", "set_view", "screenshot",
 }
 _SKETCH_METHODS = {
     "circle", "line", "arc", "rectangle", "rounded_rect", "stadium", "ellipse", "polygon",
@@ -30,16 +31,10 @@ def _call_name(node: ast.Call) -> Tuple[str | None, str | None]:
     return None, None
 
 
-def _literal_part_create(call: ast.Call) -> bool:
-    owner, method = _call_name(call)
-    return owner == "Part" and method == "create"
-
-
 def validate_generated_code(code: str) -> Tuple[bool, List[str]]:
     errors: List[str] = []
     if not code or not code.strip():
         return False, ["пустой код"]
-
     try:
         tree = ast.parse(code)
     except SyntaxError as exc:
@@ -64,9 +59,8 @@ def validate_generated_code(code: str) -> Tuple[bool, List[str]]:
                 part_creates += 1
             if owner == "part" and method == "update":
                 part_updates += 1
-            if owner == "part" and method:
-                if method not in _PART_METHODS:
-                    errors.append(f"неизвестный part.{method}() — такого метода нет в core")
+            if owner == "part" and method and method not in _PART_METHODS:
+                errors.append(f"неизвестный part.{method}() — такого метода нет в core")
             if owner == "sk" and method and method not in _SKETCH_METHODS:
                 errors.append(f"неизвестный sk.{method}() — такого метода нет в core")
             if method in _FORBIDDEN_CALLS:
@@ -82,13 +76,22 @@ def validate_generated_code(code: str) -> Tuple[bool, List[str]]:
         errors.append("Part.create(...) должен вызываться один раз для одной детали")
     if part_updates == 0:
         errors.append("нужен part.update() в конце построения")
-
     if _NEG_NUM.search(code):
         errors.append("отрицательный размер")
-    if "import " in code and "from core import Part" in code:
-        # Defensive check: generated scripts should not contain a second import.
-        import_lines = [line.strip() for line in code.splitlines() if line.strip().startswith("import ")]
-        if import_lines:
-            errors.extend(f"запрещённый import: {line}" for line in import_lines)
-
     return (len(set(errors)) == 0, list(dict.fromkeys(errors)))
+
+
+def critic_warnings(code: str, task: str = "") -> List[str]:
+    """Cheap non-blocking checks used by offline verification and diagnostics."""
+    warnings: List[str] = []
+    low_code = (code or "").lower()
+    low_task = (task or "").lower()
+    if "part.var(" not in low_code and any(x in low_task for x in ("диаметр", "длина", "ширина", "высота", "толщин", "размер")):
+        warnings.append("важные размеры не вынесены в part.var()")
+    if "part.update(" not in low_code:
+        warnings.append("нет part.update()")
+    if any(x in low_task for x in ("крышк", "фланец", "отверст")) and "screenshot(" not in low_code:
+        warnings.append("нет явного screenshot; live verifier добавит контрольный кадр")
+    if "цеков" in low_task and "counterbore(" not in low_code:
+        warnings.append("цековка должна быть реализована через counterbore()")
+    return list(dict.fromkeys(warnings))
