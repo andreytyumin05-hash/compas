@@ -16,29 +16,15 @@ load_dotenv(_ENV_PATH if _ENV_PATH.exists() else None)
 
 log = logging.getLogger("compas.llm")
 
-_GROQ_LIGHT = (
-    "openai/gpt-oss-20b",
-    "llama-3.1-8b-instant",
-    "llama-3.3-70b-versatile",
-)
-_GROQ_STRONG = (
-    "openai/gpt-oss-120b",
-    "llama-3.3-70b-versatile",
-)
+_GROQ_LIGHT = ("openai/gpt-oss-20b", "llama-3.1-8b-instant", "llama-3.3-70b-versatile")
+_GROQ_STRONG = ("openai/gpt-oss-120b", "llama-3.3-70b-versatile")
 _GROQ_ALL = _GROQ_LIGHT + _GROQ_STRONG
-
 _OPENROUTER_FREE = (
     "meta-llama/llama-3.3-70b-instruct:free",
     "google/gemma-2-9b-it:free",
     "qwen/qwen-2.5-7b-instruct:free",
 )
-
-_GEMINI_CODE = (
-    "gemini-3.7-flash",
-    "gemini-3.6-flash",
-    "gemini-3.5-flash",
-    "gemini-2.5-flash",
-)
+_GEMINI_CODE = ("gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash", "gemini-2.5-flash")
 
 
 class BaseLLM(ABC):
@@ -52,9 +38,7 @@ class BaseLLM(ABC):
 def _message_text(msg) -> str:
     if msg is None:
         return ""
-    content = getattr(msg, "content", None)
-    if isinstance(msg, dict):
-        content = msg.get("content")
+    content = msg.get("content") if isinstance(msg, dict) else getattr(msg, "content", None)
     if isinstance(content, str) and content.strip():
         return content.strip()
     for attr in ("reasoning", "reasoning_content"):
@@ -66,21 +50,17 @@ def _message_text(msg) -> str:
 
 def _is_rate_limit(exc: BaseException) -> bool:
     text = str(exc).lower()
-    return any(token in text for token in (
-        "429", "rate limit", "too many requests", "resource_exhausted", "resource exhausted", "quota", "rate_limit"
-    ))
+    return any(x in text for x in ("429", "rate limit", "too many requests", "resource_exhausted", "resource exhausted", "quota", "rate_limit"))
 
 
 def _is_model_missing(exc: BaseException) -> bool:
     text = str(exc).lower()
-    return any(token in text for token in ("404", "model not found", "not found", "unsupported model", "does not exist"))
+    return any(x in text for x in ("404", "model not found", "not found", "unsupported model", "does not exist"))
 
 
 def _is_transient(exc: BaseException) -> bool:
     text = str(exc).lower()
-    return _is_rate_limit(exc) or any(token in text for token in (
-        "timeout", "timed out", "temporarily unavailable", "service unavailable", "connection reset", "502", "503", "504"
-    ))
+    return _is_rate_limit(exc) or any(x in text for x in ("timeout", "timed out", "temporarily unavailable", "service unavailable", "connection reset", "502", "503", "504"))
 
 
 class GroqLLM(BaseLLM):
@@ -91,26 +71,24 @@ class GroqLLM(BaseLLM):
         self.name = f"groq:{model}"
 
     def chat(self, messages: List[Dict[str, str]], temperature: float = 0.2) -> str:
-        response = self.client.chat.completions.create(
-            model=self.model,
-            messages=messages,
-            temperature=temperature,
-        )
+        response = self.client.chat.completions.create(model=self.model, messages=messages, temperature=temperature)
         return _message_text(response.choices[0].message if response.choices else None)
 
 
 class GeminiLLM(BaseLLM):
-    """Gemini via the current google-genai SDK, with legacy compatibility."""
+    """Gemini using google-genai, falling back to the legacy SDK."""
 
     def __init__(self, api_key: str, model: str):
         self.api_key = api_key
         self.model_name = model
         self._client = None
+        self._types = None
         self._legacy_model = None
         try:
             from google import genai
+            from google.genai import types
             self._client = genai.Client(api_key=api_key)
-            self._types = __import__("google.genai", fromlist=["types"]).types
+            self._types = types
             self._mode = "new"
         except ImportError:
             import google.generativeai as genai
@@ -124,38 +102,25 @@ class GeminiLLM(BaseLLM):
             system = ""
             parts: List[str] = []
             for message in messages:
-                role = message.get("role", "user")
-                content = message.get("content", "")
+                role, content = message.get("role", "user"), message.get("content", "")
                 if role == "system":
                     system = content
-                elif role == "assistant":
-                    parts.append("[Assistant]\n" + content)
                 else:
-                    parts.append(content)
-            prompt = (system + "\n\n" if system else "") + "\n\n".join(parts)
+                    parts.append(("[Assistant]\n" if role == "assistant" else "") + content)
             response = self._legacy_model.generate_content(
-                prompt,
+                (system + "\n\n" if system else "") + "\n\n".join(parts),
                 generation_config={"temperature": temperature},
             )
             return getattr(response, "text", None) or ""
 
-        contents: List[str] = []
+        transcript = []
         for message in messages:
-            role = message.get("role", "user")
-            content = message.get("content", "")
-            if role == "system":
-                contents.append("SYSTEM:\n" + content)
-            elif role == "assistant":
-                contents.append("ASSISTANT:\n" + content)
-            else:
-                contents.append("USER:\n" + content)
+            role = message.get("role", "user").upper()
+            transcript.append(f"{role}:\n{message.get('content', '')}")
         response = self._client.models.generate_content(
             model=self.model_name,
-            contents=["\n\n".join(contents)],
-            config=self._types.GenerateContentConfig(
-                temperature=temperature,
-                max_output_tokens=16000,
-            ),
+            contents=["\n\n".join(transcript)],
+            config=self._types.GenerateContentConfig(temperature=temperature, max_output_tokens=16000),
         )
         return getattr(response, "text", None) or ""
 
@@ -168,17 +133,11 @@ class OpenRouterLLM(BaseLLM):
         self.name = f"openrouter:{model}"
 
     def chat(self, messages: List[Dict[str, str]], temperature: float = 0.2) -> str:
-        response = self.client.chat.completions.create(
-            model=self.model,
-            messages=messages,
-            temperature=temperature,
-        )
+        response = self.client.chat.completions.create(model=self.model, messages=messages, temperature=temperature)
         return _message_text(response.choices[0].message if response.choices else None)
 
 
 class CascadeLLM(BaseLLM):
-    """Try configured backends in order; skip quota, transient and model failures."""
-
     name = "cascade"
 
     def __init__(self, backends: Sequence[BaseLLM]):
@@ -197,11 +156,7 @@ class CascadeLLM(BaseLLM):
                 failures.append(f"{backend.name}: empty response")
             except Exception as exc:
                 failures.append(f"{backend.name}: {exc}")
-                if _is_transient(exc) or _is_model_missing(exc):
-                    log.warning("LLM fallback %s: %s", backend.name, exc)
-                    continue
-                log.exception("LLM backend failed: %s", backend.name)
-                continue
+                log.warning("LLM fallback %s: %s", backend.name, exc)
         raise RuntimeError("All LLM backends failed. " + " | ".join(failures[:8]))
 
 
@@ -209,20 +164,14 @@ def list_groq_models(api_key: str) -> List[str]:
     try:
         from groq import Groq
         models = Groq(api_key=api_key).models.list()
-        return sorted(
-            model.id for model in models.data
-            if model.id and not model.id.startswith("whisper") and "guard" not in model.id and "orpheus" not in model.id
-        )
+        return sorted(m.id for m in models.data if m.id and not m.id.startswith("whisper") and "guard" not in m.id and "orpheus" not in m.id)
     except Exception as exc:
         log.warning("Could not list Groq models: %s", exc)
         return []
 
 
 def _pick_from(available: List[str], candidates: Sequence[str]) -> Optional[str]:
-    for candidate in candidates:
-        if candidate in available:
-            return candidate
-    return None
+    return next((candidate for candidate in candidates if candidate in available), None)
 
 
 def _build_cascade() -> CascadeLLM:
@@ -231,18 +180,16 @@ def _build_cascade() -> CascadeLLM:
 
     gkey = (os.getenv("GEMINI_API_KEY") or "").strip()
     if gkey:
-        gmodel = (os.getenv("LLM_GEMINI_MODEL") or preferred or "").strip()
-        if not gmodel.lower().startswith("gemini"):
-            gmodel = _GEMINI_CODE[0]
-        backends.append(GeminiLLM(gkey, gmodel))
+        model = (os.getenv("LLM_GEMINI_MODEL") or preferred or "").strip()
+        if not model.lower().startswith("gemini"):
+            model = _GEMINI_CODE[0]
+        backends.append(GeminiLLM(gkey, model))
 
     groq_key = (os.getenv("GROQ_API_KEY") or "").strip()
     if groq_key:
         available = list_groq_models(groq_key)
         light = _pick_from(available, _GROQ_LIGHT) if available else _GROQ_LIGHT[0]
-        strong = preferred if preferred and preferred in (available or _GROQ_ALL) else None
-        if not strong:
-            strong = _pick_from(available, _GROQ_STRONG) if available else _GROQ_STRONG[0]
+        strong = preferred if preferred in (available or _GROQ_ALL) else (_pick_from(available, _GROQ_STRONG) if available else _GROQ_STRONG[0])
         if light:
             backends.append(GroqLLM(groq_key, light))
         if strong and strong != light:
@@ -250,14 +197,9 @@ def _build_cascade() -> CascadeLLM:
 
     or_key = (os.getenv("OPENROUTER_API_KEY") or "").strip()
     if or_key:
-        or_model = (os.getenv("OPENROUTER_MODEL") or "").strip() or _OPENROUTER_FREE[0]
-        backends.append(OpenRouterLLM(or_key, or_model))
-
+        backends.append(OpenRouterLLM(or_key, (os.getenv("OPENROUTER_MODEL") or "").strip() or _OPENROUTER_FREE[0]))
     if not backends:
-        raise ValueError(
-            "No LLM API keys configured. Set GEMINI_API_KEY, GROQ_API_KEY, or OPENROUTER_API_KEY in .env"
-        )
-    log.info("Cascade backends: %s", [b.name for b in backends])
+        raise ValueError("No LLM API keys configured. Set GEMINI_API_KEY, GROQ_API_KEY, or OPENROUTER_API_KEY in .env")
     return CascadeLLM(backends)
 
 
@@ -265,7 +207,6 @@ def get_llm_client(provider: Optional[str] = None, model: Optional[str] = None, 
     provider = (provider or os.getenv("LLM_PROVIDER", "cascade") or "cascade").lower().strip()
     if provider in {"cascade", "auto", ""}:
         return _build_cascade()
-
     chosen_model = (model or os.getenv("LLM_MODEL") or "").strip() or None
     if provider == "groq":
         key = api_key or os.getenv("GROQ_API_KEY", "")
