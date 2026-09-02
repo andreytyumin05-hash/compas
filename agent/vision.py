@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional
 from dotenv import load_dotenv
 
 from .contract import normalize_spec
+from .contract_validate import validate_contract
 from .schema import FEATURE_SCHEMA_TEXT
 
 _ROOT = Path(__file__).resolve().parent.parent
@@ -59,7 +60,9 @@ def _extract_json(text: str) -> Dict[str, Any]:
     raw = re.sub(r"^\s*```(?:json)?\s*", "", raw, flags=re.I)
     raw = re.sub(r"\s*```\s*$", "", raw)
     try:
-        return json.loads(raw)
+        value = json.loads(raw)
+        if isinstance(value, dict):
+            return value
     except json.JSONDecodeError as first_error:
         decoder = json.JSONDecoder()
         for idx, char in enumerate(raw):
@@ -72,6 +75,7 @@ def _extract_json(text: str) -> Dict[str, Any]:
             except json.JSONDecodeError:
                 continue
         raise ValueError(f"Vision JSON parse failed: {first_error}: {raw[:600]}") from first_error
+    raise ValueError("Vision JSON root must be an object")
 
 
 def _gemini_candidates() -> List[str]:
@@ -113,16 +117,13 @@ def _analyze_gemini_new_sdk(image_bytes: bytes, mime: str) -> Dict[str, Any]:
         except Exception as exc:
             last_err = exc
             msg = str(exc).lower()
-            if any(x in msg for x in ("404", "not found", "no longer available", "unsupported")):
-                continue
-            if any(x in msg for x in ("429", "quota", "rate limit", "resource exhausted")):
+            if any(x in msg for x in ("404", "not found", "no longer available", "unsupported", "429", "quota", "rate limit", "resource exhausted")):
                 continue
             raise RuntimeError(f"Gemini [{model_name}]: {exc}") from exc
     raise RuntimeError(f"Gemini models unavailable; last={last_err}")
 
 
 def _analyze_gemini_legacy(image_bytes: bytes, mime: str) -> Dict[str, Any]:
-    """Compatibility fallback for environments still using google-generativeai."""
     import google.generativeai as genai
 
     key = os.getenv("GEMINI_API_KEY", "").strip()
@@ -140,7 +141,7 @@ def _analyze_gemini_legacy(image_bytes: bytes, mime: str) -> Dict[str, Any]:
             if text.strip():
                 return _extract_json(text)
         except Exception as exc:
-            if any(x in str(exc).lower() for x in ("404", "not found", "no longer available")):
+            if any(x in str(exc).lower() for x in ("404", "not found", "no longer available", "unsupported")):
                 continue
             raise RuntimeError(f"Gemini legacy [{model_name}]: {exc}") from exc
     raise RuntimeError("Legacy Gemini SDK could not produce a response")
@@ -179,12 +180,7 @@ def _analyze_openrouter(image_bytes: bytes, mime: str) -> Dict[str, Any]:
 
 
 def _guess_mime(path: Path) -> str:
-    return {
-        ".jpg": "image/jpeg",
-        ".jpeg": "image/jpeg",
-        ".png": "image/png",
-        ".webp": "image/webp",
-    }.get(path.suffix.lower(), "")
+    return {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp"}.get(path.suffix.lower(), "")
 
 
 def analyze_drawing(image_path: str | Path, *, provider: Optional[str] = None) -> Dict[str, Any]:
@@ -205,6 +201,11 @@ def analyze_drawing(image_path: str | Path, *, provider: Optional[str] = None) -
         try:
             raw = _analyze_gemini(data, mime) if current == "gemini" else _analyze_openrouter(data, mime)
             spec = normalize_spec(raw)
+            hard, warnings = validate_contract(spec)
+            if hard:
+                raise RuntimeError("Invalid vision contract: " + "; ".join(hard[:8]))
+            if warnings:
+                spec["warnings"] = list(dict.fromkeys((spec.get("warnings") or []) + warnings))[:20]
             if not spec.get("features") and not spec.get("build_plan"):
                 raise RuntimeError("Vision returned no build features")
             return spec

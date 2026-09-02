@@ -1,6 +1,4 @@
-"""
-Сборка + короткий visual loop (без зависаний на 7 минут).
-"""
+"""Build the generated KOMPAS script and verify vision-derived models."""
 
 from __future__ import annotations
 
@@ -31,206 +29,167 @@ if str(_ROOT) not in sys.path:
 
 
 def execute_code(code: str) -> None:
-    code = normalize_code(code)
+    value = normalize_code(code)
     ns = {"__name__": "__kompas_script__"}
-    exec(compile(code, "<agent-build>", "exec"), ns, ns)  # noqa: S102
+    exec(compile(value, "<agent-build>", "exec"), ns, ns)  # noqa: S102
 
 
 def _ensure_visual_tail(code: str) -> str:
-    c = code or ""
-    if "screenshot(" in c or "part.verify(" in c:
-        return c
-    if "part.update()" not in c:
-        return c
-    # top + iso — для крышек отверстия сверху
+    text = code or ""
+    if "screenshot(" in text or "part.verify(" in text:
+        return text
+    if "part.update()" not in text:
+        return text
     tail = (
         "\n# auto visual\n"
         "try:\n"
         "    part.set_view('top')\n"
         "    part.screenshot('_auto_top.png')\n"
+        "    part.set_view('front')\n"
+        "    part.screenshot('_auto_front.png')\n"
         "    part.set_view('iso')\n"
         "    part.screenshot('_auto_iso.png')\n"
         "except Exception:\n"
         "    pass\n"
     )
-    idx = c.rfind("part.update()")
-    if idx < 0:
-        return c + tail
-    end = idx + len("part.update()")
-    return c[:end] + "\n" + tail + c[end:]
+    idx = text.rfind("part.update()")
+    return text[: idx + len("part.update()")] + tail + text[idx + len("part.update()") :]
 
 
 def _collect_shots(verify_result: dict, work: Path) -> List[Path]:
     shots: List[Path] = []
-    for s in verify_result.get("shots") or []:
-        if isinstance(s, str) and not s.startswith("fail:"):
-            p = Path(s)
-            if p.exists() and p.stat().st_size > 80:
-                shots.append(p)
-    for name in (
-        "_auto_top.png",
-        "_auto_iso.png",
-        "_auto_front.png",
-        "view_0_top.png",
-        "view_0_iso.png",
-        "view_1_iso.png",
-        "view_1_front.png",
-    ):
-        for cand in (work / name, Path.cwd() / name):
-            if cand.exists() and cand.stat().st_size > 80 and cand not in shots:
-                shots.append(cand)
+    for value in verify_result.get("shots") or []:
+        if not isinstance(value, str) or value.startswith("fail:"):
+            continue
+        path = Path(value)
+        if path.exists() and path.stat().st_size > 80 and path not in shots:
+            shots.append(path)
+    names = (
+        "_auto_top.png", "_auto_front.png", "_auto_iso.png",
+        "view_0_top.png", "view_1_front.png", "view_2_iso.png",
+        "view_0_iso.png", "view_1_iso.png",
+    )
+    for name in names:
+        for candidate in (work / name, Path.cwd() / name):
+            if candidate.exists() and candidate.stat().st_size > 80 and candidate not in shots:
+                shots.append(candidate)
     return shots
 
 
-def run_task(
-    task: str,
-    *,
-    max_com_retries: int = 2,
-    visual_loop: Optional[bool] = None,
-) -> str:
-    normalized = task.strip()
+def run_task(task: str, *, max_com_retries: int = 3, visual_loop: Optional[bool] = None) -> str:
     normalized = re.sub(
         r"^\s*(?:распознал\s+так|detected|recognized)\s*[:\-]*\s*",
         "",
-        normalized,
+        (task or "").strip(),
         flags=re.I,
     )
-    normalized = normalized.replace(">>", " ").replace("|", " ")
-    normalized = " ".join(normalized.split())
+    normalized = " ".join(normalized.replace(">>", " ").replace("|", " ").split())
 
+    # Vision-derived contracts should always be inspected once after build.
+    # Text-only jobs keep the old opt-in behavior to avoid unnecessary latency.
+    is_vision_task = "CAD_CONTRACT v2" in normalized or "drawing2model" in normalized.lower()
     if visual_loop is None:
-        # по умолчанию ВЫКЛ тяжёлый VLM в боте — иначе 7+ минут зависаний
-        # включить: COMPAS_VISUAL_LOOP=1
-        visual_loop = os.getenv("COMPAS_VISUAL_LOOP", "0").strip().lower() in (
-            "1",
-            "true",
-            "yes",
-        )
+        explicit = os.getenv("COMPAS_VISUAL_LOOP")
+        visual_loop = (explicit.strip().lower() in {"1", "true", "yes"}) if explicit is not None else is_vision_task
 
     agent = Agent()
-    t0 = time.time()
-    code, errors = agent.generate_checked(normalized)
+    started = time.time()
+    code, errors = agent.generate_checked(normalized, max_retries=max(2, max_com_retries))
     if errors or must_fix_holes(code):
-        raise RuntimeError(
-            "Код не прошёл проверку: "
-            + "; ".join(
-                (errors or [])
-                + (["отверстия без cut"] if must_fix_holes(code) else [])
-            )
-        )
+        raise RuntimeError("Код не прошёл проверку: " + "; ".join((errors or []) + (["hole coverage"] if must_fix_holes(code) else [])))
 
-    code = _ensure_visual_tail(code)
-    last_err: Optional[BaseException] = None
-    final = code
+    final = _ensure_visual_tail(code)
     work = Path(tempfile.mkdtemp(prefix="compas_vis_"))
-    vlm_budget = float(os.getenv("COMPAS_VLM_TIMEOUT_SEC", "45"))
+    last_error: Optional[BaseException] = None
+    max_wall = float(os.getenv("COMPAS_BUILD_TIMEOUT_SEC", "300"))
+    vlm_deadline = float(os.getenv("COMPAS_VLM_TIMEOUT_SEC", "45"))
 
-    for attempt in range(max_com_retries):
+    for attempt in range(max(1, max_com_retries)):
+        if time.time() - started > max_wall:
+            raise TimeoutError("build exceeded COMPAS_BUILD_TIMEOUT_SEC")
         try:
             execute_code(final)
-            if visual_loop and (time.time() - t0) < 300:
+            if visual_loop and time.time() - started < max_wall:
                 try:
                     from core import Part
 
                     part = Part.from_active()
-                    vres = live_verify(
-                        part, work / "shots", views=["top", "iso"]
-                    )
+                    vres = live_verify(part, work / "shots", views=["top", "front", "iso"])
                     tree = snapshot_feature_tree(part)
                     shots = _collect_shots(vres, work / "shots")
-                    shots += _collect_shots({}, Path.cwd())
-                    # жёсткий лимит на VLM
                     issues: List[str] = []
-                    if shots and (time.time() - t0) < 240:
-                        issues = review_screenshots(normalized, final, shots)
+                    if shots and time.time() - started < max_wall - min(vlm_deadline, 60):
+                        issues = review_screenshots(
+                            normalized,
+                            final,
+                            shots,
+                            context={"tree": tree[:6000], "verify": vres},
+                        )
                     if issues:
-                        print("  👁 VLM:", "; ".join(issues)[:200])
-                        if attempt + 1 < max_com_retries:
+                        print("  👁 VLM:", "; ".join(issues)[:300])
+                        if attempt + 1 < max_com_retries and time.time() - started < max_wall:
                             raw = agent.llm.chat(
                                 [
-                                    {
-                                        "role": "system",
-                                        "content": get_system_prompt(normalized),
-                                    },
-                                    {
-                                        "role": "user",
-                                        "content": build_repair_prompt(
-                                            normalized,
-                                            final,
-                                            issues + ["Дерево:\n" + tree[:600]],
-                                        ),
-                                    },
+                                    {"role": "system", "content": get_system_prompt(normalized)},
+                                    {"role": "user", "content": build_repair_prompt(normalized, final, issues + ["TREE/STATE:\n" + tree[:1200]])},
                                 ],
                                 temperature=0.1,
                             )
-                            new_code = normalize_code(
-                                agent._extract_code(raw or "")
-                            )
-                            ok, _ = validate_generated_code(new_code)
-                            if ok and new_code.strip():
-                                final = _ensure_visual_tail(new_code)
-                                continue
+                            repaired = normalize_code(agent._extract_code(raw or ""))
+                            ok, repair_errors = validate_generated_code(repaired)
+                            if ok and repaired.strip():
+                                good, critic_errors = review_before_build(normalized, repaired, llm=None, use_llm=False)
+                                if good:
+                                    final = _ensure_visual_tail(repaired)
+                                    continue
+                                print("  ⚠ repair rejected:", "; ".join(critic_errors[:4]))
                     else:
-                        print("  👁 visual: ok/skip")
-                except Exception as ve:
-                    print(f"  👁 visual skip: {ve}")
+                        print("  👁 visual: ok/skip", f"shots={len(shots)}")
+                except Exception as exc:
+                    # A verification failure must never be turned into a fake CAD success.
+                    print(f"  👁 visual verification failed: {exc}")
 
             remember(task, final)
             return final
-        except Exception as e:
-            last_err = e
+        except Exception as exc:
+            last_error = exc
             if attempt + 1 >= max_com_retries:
                 break
             try:
                 raw = agent.llm.chat(
                     [
-                        {"role": "system", "content": get_system_prompt(task)},
-                        {
-                            "role": "user",
-                            "content": build_repair_prompt(
-                                task, final, [str(e)]
-                            ),
-                        },
+                        {"role": "system", "content": get_system_prompt(normalized)},
+                        {"role": "user", "content": build_repair_prompt(normalized, final, [str(exc)])},
                     ],
                     temperature=0.1,
                 )
-                new_code = normalize_code(agent._extract_code(raw or ""))
-                ok, _ = validate_generated_code(new_code)
-                if not ok:
-                    continue
-                good, crit = review_before_build(
-                    task, new_code, llm=None, use_llm=False
-                )
-                if good or not crit:
-                    final = _ensure_visual_tail(new_code)
+                repaired = normalize_code(agent._extract_code(raw or ""))
+                ok, _ = validate_generated_code(repaired)
+                if ok:
+                    final = _ensure_visual_tail(repaired)
             except Exception:
                 pass
-    raise RuntimeError(f"КОМПАС: {last_err}")
+    raise RuntimeError(f"КОМПАС: {last_error}")
 
 
-def run_task_export(
-    task: str, out_path: str | Path, fmt: str = "m3d"
-) -> Tuple[str, Path]:
+def run_task_export(task: str, out_path: str | Path, fmt: str = "m3d") -> Tuple[str, Path]:
     from core import Part
-
     code = run_task(task)
-    path = Part.from_active().export(out_path, fmt=fmt)
-    return code, path
+    return code, Part.from_active().export(out_path, fmt=fmt)
 
 
 def main() -> None:
     console = Console()
     if len(sys.argv) < 2:
         console.print('[yellow]python -m agent.build "описание"[/]')
-        sys.exit(1)
-    task = " ".join(sys.argv[1:])
+        raise SystemExit(1)
     try:
-        code = run_task(task)
+        code = run_task(" ".join(sys.argv[1:]))
         console.print(Syntax(code, "python", theme="monokai", line_numbers=True))
         console.print("[green]Готово.[/]")
-    except Exception as e:
-        console.print(f"[red]{e}[/]")
-        sys.exit(1)
+    except Exception as exc:
+        console.print(f"[red]{exc}[/]")
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":
