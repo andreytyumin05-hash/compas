@@ -5,6 +5,9 @@ from .part import Part
 from .sketch import Sketch
 from .exceptions import KompasError, KompasNotRunningError, KompasOperationError
 from .params import ParamStore, ParamError
+from .sketch_spline import apply_spline_patch
+
+apply_spline_patch()
 
 
 def _no_sketch_on_face(self, face: str = "top", plane: str = "xy", *, offset: float = 0.0):
