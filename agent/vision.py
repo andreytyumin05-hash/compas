@@ -1,4 +1,4 @@
-"""Распознавание чертежа → JSON + план построения."""
+"""Drawing vision: image -> validated canonical CAD contract."""
 
 from __future__ import annotations
 
@@ -11,121 +11,146 @@ from typing import Any, Dict, List, Optional
 
 from dotenv import load_dotenv
 
+from .contract import normalize_spec
 from .schema import FEATURE_SCHEMA_TEXT
 
 _ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(_ROOT / ".env")
 
 _GEMINI_FALLBACKS = (
+    "gemini-3.7-flash",
     "gemini-3.6-flash",
-    "gemini-3.0-flash",
+    "gemini-3.5-flash",
     "gemini-2.5-flash",
-    "gemini-flash-latest",
-    "gemini-pro-latest",
 )
 _DEFAULT_OPENROUTER_VISION = "openai/gpt-4o-mini"
+_SUPPORTED_MIME = {"image/jpeg", "image/png", "image/webp"}
 
-_VISION_PROMPT = f"""Ты инженер-конструктор с опытом чтения машиностроительных чертежей.
-По изображению извлеки геометрию и КАК лучше собрать деталь в CAD.
-Ответ — ТОЛЬКО один JSON без markdown.
+_VISION_PROMPT = f"""You are a mechanical design engineer reading a manufacturing drawing.
+Convert the image into a precise, machine-readable CAD contract.
+Return ONLY one JSON object. No markdown, no commentary.
 
-Схема:
+SCHEMA:
 {FEATURE_SCHEMA_TEXT}
 
-## Чтение линий (критично)
-- Сплошная толстая — видимый контур → тело / ступень / бобышка (extrude).
-- Штриховая (пунктир) — скрытый контур за телом → отверстие, полость, дальняя кромка.
-  НЕ делай из пунктира наружную стенку и НЕ выдавливай как основной контур.
-- Штрихпунктирная — ось, PCD, плоскость симметрии → для массивов и центров, не контур.
-- Тонкая сплошная — размерные / вспомогательные — только размеры, не геометрия.
-
-## Паттерны
-- Одинаковые отверстия по кругу → type=pattern_holes, pattern=circular, pcd, count, diameter.
-- По прямой → pattern=linear.
-- Разные диаметры в разных местах → отдельные hole / hole_list, не один «усреднённый».
-- Цековка / зенковка: counterbore / countersink (pilot + больший диаметр + depth).
-
-## Ступени и тела
-- Каждая цилиндрическая ступень со своим Ø и длиной — отдельный feature step/extrude_body.
-- Не склеивай вал/пробку/штуцер в одну «плиту» или один rectangle.
-- part_type: shaft|plug для осевых ступенчатых; cover|flange для плоских с бобышкой.
-
-## build_plan
-Обязательно заполни build_plan — нумерованные шаги для CAD-агента, например:
-1. База Ø50 L10 circle+extrude
-2. Ступень Ø42 L20
-3. Канавка ring_groove
-4. Шестигранный карман polygon+cut
-5. pattern_holes_circular …
-6. chamfer на торце
-Укажи depends_on, если шаг опирается на предыдущий.
-
-## Размеры
-- mm; у отверстий diameter (не радиус).
-- Не выдумывай; нечитаемое → unknown_dimensions + warnings.
-- patterns_hint: короткие фразы «N×Ød на PCD …».
+IMPORTANT INTERPRETATION RULES:
+- Thick continuous lines = visible solid geometry.
+- Dashed lines = hidden geometry only. Do NOT create an outer wall from them.
+- Centerlines / chain lines = axes, symmetry, PCD references; never solid geometry.
+- Thin dimension lines = measurements, not geometry.
+- Repeated identical holes must be represented as pattern_holes with count + PCD where the drawing supports it.
+- Different hole diameters/locations are separate features.
+- Counterbore and countersink must preserve pilot diameter, larger diameter and depth when readable.
+- A stepped shaft/plug/fitting must be represented as multiple cylindrical additive steps, one diameter/length per step.
+- Never replace a cylindrical stepped part by a rectangle.
+- Build order must be explicit: base -> added material -> cuts -> patterns -> chamfer/fillet.
+- Every feature in the drawing that matters to the solid model must appear in features and build_plan.
+- All dimensions are millimetres. Never invent an unreadable value. Put it in unknown_dimensions and warnings instead.
+- For each build_plan step prefer an object: {{"id":"S01","type":"...","params":{{...}},"depends_on":"S00"}}.
+- For each feature prefer an object: {{"id":"F01","type":"...","params":{{...}},"depends_on":"F00"}}.
 """
 
 
 def _extract_json(text: str) -> Dict[str, Any]:
-    text = text.strip()
-    if text.startswith("```"):
-        text = re.sub(r"^```(?:json)?\s*", "", text)
-        text = re.sub(r"\s*```$", "", text)
+    """Extract one JSON object robustly from fenced/prose model output."""
+    raw = (text or "").strip()
+    if not raw:
+        raise ValueError("Vision returned an empty response")
+    raw = re.sub(r"^\s*```(?:json)?\s*", "", raw, flags=re.I)
+    raw = re.sub(r"\s*```\s*$", "", raw)
     try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        m = re.search(r"\{[\s\S]*\}", text)
-        if m:
-            return json.loads(m.group(0))
-        raise ValueError(f"Не JSON из vision:\n{text[:500]}")
+        return json.loads(raw)
+    except json.JSONDecodeError as first_error:
+        decoder = json.JSONDecoder()
+        for idx, char in enumerate(raw):
+            if char != "{":
+                continue
+            try:
+                value, _ = decoder.raw_decode(raw[idx:])
+                if isinstance(value, dict):
+                    return value
+            except json.JSONDecodeError:
+                continue
+        raise ValueError(f"Vision JSON parse failed: {first_error}: {raw[:600]}") from first_error
 
 
 def _gemini_candidates() -> List[str]:
-    vm = (os.getenv("VISION_MODEL") or "").strip()
+    requested = (os.getenv("VISION_MODEL") or "").strip()
     ordered: List[str] = []
-    if vm and "gemini" in vm.lower():
-        ordered.append(vm)
-    for m in _GEMINI_FALLBACKS:
-        if m not in ordered:
-            ordered.append(m)
+    if requested and requested.lower().startswith("gemini"):
+        ordered.append(requested)
+    for name in _GEMINI_FALLBACKS:
+        if name not in ordered:
+            ordered.append(name)
     return ordered
 
 
-def _analyze_gemini(image_bytes: bytes, mime: str) -> Dict[str, Any]:
+def _analyze_gemini_new_sdk(image_bytes: bytes, mime: str) -> Dict[str, Any]:
+    from google import genai
+    from google.genai import types
+
+    key = os.getenv("GEMINI_API_KEY", "").strip()
+    if not key:
+        raise RuntimeError("GEMINI_API_KEY is not set")
+    client = genai.Client(api_key=key)
+    last_err: Optional[Exception] = None
+    for model_name in _gemini_candidates():
+        try:
+            image_part = types.Part.from_bytes(data=image_bytes, mime_type=mime)
+            response = client.models.generate_content(
+                model=model_name,
+                contents=[_VISION_PROMPT, image_part],
+                config=types.GenerateContentConfig(
+                    temperature=0.0,
+                    response_mime_type="application/json",
+                    max_output_tokens=12000,
+                ),
+            )
+            text = getattr(response, "text", None) or ""
+            if text.strip():
+                return _extract_json(text)
+            raise RuntimeError("empty response")
+        except Exception as exc:
+            last_err = exc
+            msg = str(exc).lower()
+            if any(x in msg for x in ("404", "not found", "no longer available", "unsupported")):
+                continue
+            if any(x in msg for x in ("429", "quota", "rate limit", "resource exhausted")):
+                continue
+            raise RuntimeError(f"Gemini [{model_name}]: {exc}") from exc
+    raise RuntimeError(f"Gemini models unavailable; last={last_err}")
+
+
+def _analyze_gemini_legacy(image_bytes: bytes, mime: str) -> Dict[str, Any]:
+    """Compatibility fallback for environments still using google-generativeai."""
     import google.generativeai as genai
 
     key = os.getenv("GEMINI_API_KEY", "").strip()
     if not key:
-        raise RuntimeError("GEMINI_API_KEY пуст — vision не работает")
+        raise RuntimeError("GEMINI_API_KEY is not set")
     genai.configure(api_key=key)
-
-    last_err: Optional[Exception] = None
     for model_name in _gemini_candidates():
         try:
             model = genai.GenerativeModel(model_name)
-            resp = model.generate_content(
-                [
-                    _VISION_PROMPT,
-                    {"mime_type": mime, "data": image_bytes},
-                ],
-                generation_config={"temperature": 0.15},
+            response = model.generate_content(
+                [_VISION_PROMPT, {"mime_type": mime, "data": image_bytes}],
+                generation_config={"temperature": 0.0},
             )
-            text = getattr(resp, "text", None) or ""
-            if not text.strip():
-                raise RuntimeError("пустой ответ Gemini")
-            return _extract_json(text)
-        except Exception as e:
-            last_err = e
-            msg = str(e).lower()
-            if "404" in msg or "no longer available" in msg or "not found" in msg:
+            text = getattr(response, "text", None) or ""
+            if text.strip():
+                return _extract_json(text)
+        except Exception as exc:
+            if any(x in str(exc).lower() for x in ("404", "not found", "no longer available")):
                 continue
-            raise RuntimeError(f"Gemini [{model_name}]: {e}") from e
+            raise RuntimeError(f"Gemini legacy [{model_name}]: {exc}") from exc
+    raise RuntimeError("Legacy Gemini SDK could not produce a response")
 
-    raise RuntimeError(
-        f"Gemini: ни одна модель. last={last_err}. "
-        f"Пробовали: {', '.join(_gemini_candidates())}"
-    )
+
+def _analyze_gemini(image_bytes: bytes, mime: str) -> Dict[str, Any]:
+    try:
+        return _analyze_gemini_new_sdk(image_bytes, mime)
+    except ImportError:
+        return _analyze_gemini_legacy(image_bytes, mime)
 
 
 def _analyze_openrouter(image_bytes: bytes, mime: str) -> Dict[str, Any]:
@@ -133,30 +158,23 @@ def _analyze_openrouter(image_bytes: bytes, mime: str) -> Dict[str, Any]:
 
     key = os.getenv("OPENROUTER_API_KEY", "").strip()
     if not key:
-        raise RuntimeError("OPENROUTER_API_KEY не задан")
-    vm = (os.getenv("VISION_MODEL") or "").strip()
-    model = (
-        vm if vm and "gemini" not in vm.lower() else _DEFAULT_OPENROUTER_VISION
-    )
+        raise RuntimeError("OPENROUTER_API_KEY is not set")
+    requested = (os.getenv("VISION_MODEL") or "").strip()
+    model = requested if requested and "gemini" not in requested.lower() else _DEFAULT_OPENROUTER_VISION
     b64 = base64.b64encode(image_bytes).decode("ascii")
     client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=key)
-    resp = client.chat.completions.create(
+    response = client.chat.completions.create(
         model=model,
-        temperature=0.15,
-        messages=[
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": _VISION_PROMPT},
-                    {
-                        "type": "image_url",
-                        "image_url": {"url": f"data:{mime};base64,{b64}"},
-                    },
-                ],
-            }
-        ],
+        temperature=0.0,
+        messages=[{
+            "role": "user",
+            "content": [
+                {"type": "text", "text": _VISION_PROMPT},
+                {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}},
+            ],
+        }],
     )
-    text = resp.choices[0].message.content or ""
+    text = getattr(response.choices[0].message, "content", None) or ""
     return _extract_json(text)
 
 
@@ -166,36 +184,30 @@ def _guess_mime(path: Path) -> str:
         ".jpeg": "image/jpeg",
         ".png": "image/png",
         ".webp": "image/webp",
-    }.get(path.suffix.lower(), "image/jpeg")
+    }.get(path.suffix.lower(), "")
 
 
-def analyze_drawing(
-    image_path: str | Path,
-    *,
-    provider: Optional[str] = None,
-) -> Dict[str, Any]:
+def analyze_drawing(image_path: str | Path, *, provider: Optional[str] = None) -> Dict[str, Any]:
     path = Path(image_path)
     if not path.is_file():
         raise FileNotFoundError(str(path))
     data = path.read_bytes()
-    if len(data) < 100:
-        raise RuntimeError("Файл картинки пустой или слишком маленький")
+    if len(data) < 256:
+        raise RuntimeError("Image is empty or too small")
     mime = _guess_mime(path)
-    order = (provider or os.getenv("VISION_PROVIDER", "auto")).lower().strip() or "auto"
+    if mime not in _SUPPORTED_MIME:
+        raise RuntimeError(f"Unsupported drawing image format: {path.suffix or '<none>'}")
 
+    order = (provider or os.getenv("VISION_PROVIDER", "auto")).lower().strip() or "auto"
     errors: List[str] = []
-    if order in ("auto", "gemini"):
+    providers = [order] if order != "auto" else ["gemini", "openrouter"]
+    for current in providers:
         try:
-            return _analyze_gemini(data, mime)
-        except Exception as e:
-            errors.append(f"gemini: {e}")
-            if order == "gemini":
-                raise RuntimeError(f"Vision: {e}") from e
-    if order in ("auto", "openrouter"):
-        try:
-            return _analyze_openrouter(data, mime)
-        except Exception as e:
-            errors.append(f"openrouter: {e}")
-            if order == "openrouter":
-                raise
-    raise RuntimeError("Vision не удался. " + "; ".join(errors))
+            raw = _analyze_gemini(data, mime) if current == "gemini" else _analyze_openrouter(data, mime)
+            spec = normalize_spec(raw)
+            if not spec.get("features") and not spec.get("build_plan"):
+                raise RuntimeError("Vision returned no build features")
+            return spec
+        except Exception as exc:
+            errors.append(f"{current}: {exc}")
+    raise RuntimeError("Vision failed: " + " | ".join(errors))
