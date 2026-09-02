@@ -1,30 +1,46 @@
-"""Промпт: дерево фич; API только из ops_registry."""
+"""Промпт: text → parametric CAD (приоритет над vision)."""
 
 from core.ops_registry import prompt_api_block
 from .knowledge import load_patterns
 from .memory import few_shot_from_memory
 
-_API = prompt_api_block()
+_API = prompt_api_block() + """
+
+## Параметры (обязательно для text-to-CAD)
+
+```python
+part.param("D1", 60)
+part.param("L1", 20)
+part.param("D_inner", 16)
+r1 = part.p("D1") / 2
+with part.sketch("xy") as sk:
+    sk.circle(0, 0, r1)
+part.extrude(sk, depth=part.p("L1"))
+```
+
+## Сплайн (профиль лопасти)
+
+```python
+with part.sketch("xz") as sk:
+    sk.spline([(0,0), (10,5), (20,4), (30,0)], closed=False)
+```
+НЕ заменять spline на polyline.
+"""
 
 _LOGIC = """
-## Логика сложной детали (обязательно)
+## Text → parametric model
 
-Думай деревом построения, не одним эскизом:
-
-1) БАЗА — один контур + extrude. Цилиндр: circle. Овал/крышка: stadium/rounded_rect.
-2) СТУПЕНИ / БОБЫШКИ — отдельный sketch + extrude на каждую ступень.
-3) ВЫРЕЗЫ — cut(depth=...) или pocket; сквозное — through_all / hole.
-4) ОТВЕРСТИЯ — hole / pattern_holes_*; цековка — counterbore.
-5) КАНАВКА — ring_groove / groove.
-6) ФАСКИ / СКРУГЛЕНИЯ — в конце fillet/chamfer.
-7) Не удаляй фичи из ТЗ. Не подставляй случайные размеры.
-8) Запрещено: shell, thread, sweep, loft, sketch_on_face, win32com.
+1) PARAMETERS из ТЗ (D1, L1, D_inner, ...).
+2) part.param(...) для каждого.
+3) Каждая цилиндрическая ступень — свой sketch + extrude.
+4) Шейка = ступень меньшего Ø.
+5) hole through D_inner; groove; chamfer/fillet в конце.
+6) Запрещено: shell, thread, sweep, loft, sketch_on_face, win32com.
+7) Не один extrude на все ступени.
 """
 
 _RULES = """
-Сначала 3–8 строк плана по ТЗ, затем один блок ```python
-с from core import Part и part.update().
-Размеры только из ТЗ, буквально.
+Сначала PARAMETERS + BUILD_PLAN, затем ```python с Part, param, p, update().
 """
 
 
@@ -32,10 +48,10 @@ def get_system_prompt(task: str = "") -> str:
     mem = few_shot_from_memory(task) if task else ""
     use_mem = mem and not any(
         w in (task or "").lower()
-        for w in ("build_plan", "ступен", "пробк", "вал", "feature=", "крышк", "stadium")
+        for w in ("ступен", "штуцер", "вал", "лопаст", "канавк", "шейк")
     )
     return (
-        "Ты CAD-агент КОМПАС. Пишешь только код через core по ТЗ.\n"
+        "Ты CAD-агент КОМПАС. Цель: параметрическая редактируемая модель по тексту.\n"
         + _API
         + "\n"
         + _LOGIC
@@ -50,18 +66,25 @@ SYSTEM_PROMPT = get_system_prompt()
 
 
 def build_user_prompt(task: str) -> str:
+    extra = ""
+    try:
+        from .text_contract import parse_technical_text, contract_to_codegen_hints
+
+        c = parse_technical_text(task)
+        extra = "\n\n" + contract_to_codegen_hints(c)
+    except Exception:
+        pass
     return (
-        "Собери деталь СТРОГО по ТЗ. Все ступени, отверстия, канавки — в коде.\n"
-        "Не упрощай до одной плиты. Размеры только из ТЗ.\n\n"
+        "Собери ПАРАМЕТРИЧЕСКУЮ деталь по ТЗ. part.param + part.p.\n\n"
         f"ТЗ:\n{task.strip()}"
+        + extra
     )
 
 
 def build_repair_prompt(task: str, bad_code: str, errors: list) -> str:
     err = "\n".join(f"- {e}" for e in errors) or "- ошибка"
     return (
-        "Исправь МИНИМАЛЬНО: устрани замечания, сохрани остальную геометрию.\n"
-        "Только ```python.\n"
+        "Минимальный ремонт. Сохрани part.param и ступени.\n"
         f"Замечания:\n{err}\n\nТЗ:\n{task.strip()}\n\n"
         f"Было:\n```python\n{(bad_code or '')[:2500]}\n```\n"
     )

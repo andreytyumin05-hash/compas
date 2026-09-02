@@ -1,13 +1,10 @@
-# Дерево построения (сложная деталь)
+# Patterns (text-first parametric)
 
-1. **База** — контур + `extrude`
-2. **Ступени / бобышки** — новый sketch + `extrude` (не в том же эскизе, что вырез)
-3. **Карманы** — sketch + `cut(depth=…)` глухой; сквозное — `through_all=True`
-4. **Отверстия** — `hole` / `pattern_holes_*`
-5. **Зенковка** — сначала мелкий вырез/hole большего Ø, потом основной hole
-6. **Кромки** — `fillet` / `chamfer` в конце
+## Штуцер / ступенчатый вал
+part.param D1,L1,D2,L2,D3,L3,D_inner — каждая ступень: circle(p(Di)/2)+extrude(p(Li)); hole; groove; chamfer.
 
-Плоскости: `sketch("xy"|"xz"|"yz")`.
+## Втулка
+D_outer, D_inner, L → extrude + hole
 
-Stadium: `rounded_rect` / `stadium`, не ломаная.
-Ø → радиус = D/2 для circle, diameter= для hole.
+## Лопасть
+sk.spline([...]) on xz; loft later when real API exists.
