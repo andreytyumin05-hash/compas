@@ -13,15 +13,14 @@ _PART_METHODS = {
     "pattern_holes_rect", "pattern_holes_points", "pattern_holes_linear", "hole_list",
     "mirror_points", "slot", "step", "boss", "hex_boss", "ring_groove", "groove",
     "keyway", "pocket", "counterbore", "countersink", "export", "export_formats", "close",
-    "mass_properties", "update", "shell", "thread", "name", "var", "set_properties",
-    "get_context", "set_view", "screenshot",
+    "mass_properties", "update", "name", "var", "set_properties", "get_context", "set_view", "screenshot",
 }
 _SKETCH_METHODS = {
     "circle", "line", "arc", "rectangle", "rounded_rect", "stadium", "ellipse", "polygon",
     "polyline", "arc_by_points", "spline", "bezier", "slot", "dim_linear", "dim_radial", "dim_rect",
 }
 _FORBIDDEN_NAMES = {"win32com", "pythoncom", "gencache", "Dispatch", "GetActiveObject"}
-_FORBIDDEN_CALLS = {"loft", "sweep"}
+_FORBIDDEN_CALLS = {"loft", "sweep", "shell", "thread"}
 _NEG_NUM = re.compile(r"(?:depth|diameter|radius|width|height|pcd|length|thickness)\s*=\s*-\s*\d", re.I)
 
 
@@ -64,7 +63,7 @@ def validate_generated_code(code: str) -> Tuple[bool, List[str]]:
             if owner == "sk" and method and method not in _SKETCH_METHODS:
                 errors.append(f"неизвестный sk.{method}() — такого метода нет в core")
             if method in _FORBIDDEN_CALLS:
-                errors.append(f"запрещена операция: {method}()")
+                errors.append(f"операция {method}() пока не реализована в core и запрещена в generated code")
         elif isinstance(node, ast.Name) and node.id in _FORBIDDEN_NAMES:
             errors.append(f"запрещённый COM-доступ: {node.id}")
 
@@ -82,7 +81,6 @@ def validate_generated_code(code: str) -> Tuple[bool, List[str]]:
 
 
 def critic_warnings(code: str, task: str = "") -> List[str]:
-    """Cheap non-blocking checks used by offline verification and diagnostics."""
     warnings: List[str] = []
     low_code = (code or "").lower()
     low_task = (task or "").lower()
@@ -94,4 +92,6 @@ def critic_warnings(code: str, task: str = "") -> List[str]:
         warnings.append("нет явного screenshot; live verifier добавит контрольный кадр")
     if "цеков" in low_task and "counterbore(" not in low_code:
         warnings.append("цековка должна быть реализована через counterbore()")
+    if any(x in low_task for x in ("резьб", "thread", "shell", "оболоч")):
+        warnings.append("thread/shell ещё не моделируются нативно и не должны имитироваться")
     return list(dict.fromkeys(warnings))

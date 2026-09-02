@@ -47,6 +47,18 @@ part.update()
     assert any("неизвестный part.magic_operation" in e for e in errors)
 
 
+def test_validator_rejects_fake_unimplemented_features():
+    code = '''
+from core import Part
+part = Part.create("X")
+part.thread(0, 0, diameter=20, pitch=2, length=10)
+part.update()
+'''
+    ok, errors = validate_generated_code(code)
+    assert not ok
+    assert any("thread" in e for e in errors)
+
+
 def test_validator_accepts_real_parameter_friendly_script():
     code = '''
 from core import Part
