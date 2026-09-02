@@ -27,6 +27,10 @@ O3D_BOSS_EXTRUSION = 25
 O3D_CUT_EXTRUSION = 26
 O3D_BOSS_ROTATED = 27
 DT_NORMAL = 0
+DT_REVERSE = 1
+DT_BOTH = 2
+ET_BLIND = 0
+ET_THROUGH_ALL = 1
 
 
 def _co_init() -> None:
@@ -169,7 +173,6 @@ class KompasApp:
             d3 = _as_prop_or_call(self.k5, "Document3D")
             if d3 is None:
                 return None, None, "no Document3D"
-            # try create new
             part, how = _extract_part(d3, require_legacy_part=True)
             return d3, part, f"api5:{how}"
         except Exception as e:
@@ -182,7 +185,7 @@ class KompasApp:
                 part, how = _extract_part(ad, require_legacy_part=True)
                 if part is not None:
                     return ad, part, f"active7:{how}"
-            except Exception as e:
+            except Exception:
                 pass
         if self.k5 is not None:
             try:
