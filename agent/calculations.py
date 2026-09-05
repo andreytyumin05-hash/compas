@@ -40,8 +40,9 @@ def _find(patterns: tuple[str, ...], text: str) -> Optional[float]:
 
 def _torque_nm(text: str) -> Optional[float]:
     value = _find((
-        r"(?:крутящ(?:ий|его)\s+момент|момент|torque)\D{0,30}(\d+(?:[\.,]\d+)?)\s*(?:н\s*[·*x]?\s*м|n\s*m|nm)\b",
-        r"(?:T|M)\s*[=:]\s*(\d+(?:[\.,]\d+)?)\s*(?:н\s*[·*x]?\s*м|nm|n\s*m)\b",
+        r"(?:крутящ(?:ий|его)\s+момент|torque)\D{0,30}(\d+(?:[\.,]\d+)?)\s*(?:н\s*[·*x]?\s*м|n\s*m|nm)\b",
+        r"(?:\bMt\b|\bT\b)\s*[=:]\s*(\d+(?:[\.,]\d+)?)\s*(?:н\s*[·*x]?\s*м|nm|n\s*m)?\b",
+        r"(?<!изгибающий\s)(?<!изгибающего\s)(?<!bending\s)момент\D{0,30}(\d+(?:[\.,]\d+)?)\s*(?:н\s*[·*x]?\s*м|n\s*m|nm)\b",
     ), text)
     return value
 
@@ -51,7 +52,6 @@ def _stress_mpa(text: str) -> Optional[float]:
         r"(?:допустим(?:ое|ая)\s+(?:касательн(?:ое|ая)\s+)?напряжени(?:е|я)|допустим(?:ое|ая)\s+напряжение|tau[_ ]?allow|τ[_ ]?доп)\D{0,30}(\d+(?:[\.,]\d+)?)\s*(?:мпа|mpa)",
         r"(?:[τt]|tau)\s*[=:]\s*(\d+(?:[\.,]\d+)?)\s*(?:мпа|mpa)\b",
     ), text)
-    return value
 
 
 def _safety_factor(text: str) -> Optional[float]:
@@ -62,21 +62,17 @@ def _safety_factor(text: str) -> Optional[float]:
 
 
 def _power_kw(text: str) -> Optional[float]:
-    return _find((r"(?:мощност(?:ь|и)|power)\D{0,25}(\d+(?:[\.,]\d+)?)\s*(?:квт|kw)\b"), text)
+    return _find((r"(?:мощност(?:ь|и)|power)\D{0,25}(\d+(?:[\.,]\d+)?)\s*(?:квт|kw)\b",), text)
 
 
 def _speed_rpm(text: str) -> Optional[float]:
-    return _find((r"(?:частот(?:а|ы)\s+вращения|скорост(?:ь|и)\s+вращения|оборотов|rpm|n)\D{0,25}(\d+(?:[\.,]\d+)?)\s*(?:об/?мин|rpm)?\b"), text)
+    return _find((
+        r"(?:частот(?:а|ы)\s+вращения|скорост(?:ь|и)\s+вращения|оборотов|rpm|n)\D{0,25}(\d+(?:[\.,]\d+)?)\s*(?:об/?мин|rpm)?\b",
+    ,), text)
 
 
 def shaft_diameter_from_torque(text: str) -> Optional[CalculationResult]:
-    """Pure torsion preliminary shaft diameter estimate, d in mm.
-
-    Uses d = cubert(16*T/(pi*tau_allow)), with T in N*mm. If a safety factor
-    is supplied, torque is multiplied by it. This is a preliminary strength
-    estimate, not a final shaft design (fatigue, keyway, bending, stress
-    concentrations, deflection and standards still require separate checks).
-    """
+    """Pure torsion preliminary shaft diameter estimate, d in mm."""
     torque = _torque_nm(text)
     if torque is None:
         power = _power_kw(text)
@@ -115,8 +111,57 @@ def shaft_diameter_from_torque(text: str) -> Optional[CalculationResult]:
     )
 
 
+def shaft_diameter_bending_torsion(text: str) -> Optional[CalculationResult]:
+    """Preliminary shaft diameter under combined bending + torsion."""
+    mb = _find((
+        r"(?:изгибающ(?:ий|его)\s+момент|момент\s+изгиба|bending\s*moment|\bMb\b)\D{0,30}(\d+(?:[\.,]\d+)?)\s*(?:н\s*[·*x]?\s*м|n\s*m|nm)\b",
+        r"\bMb\s*[=:]\s*(\d+(?:[\.,]\d+)?)\b",
+    ), text)
+    mt = _torque_nm(text)
+    if mt is None:
+        power = _power_kw(text)
+        speed = _speed_rpm(text)
+        if power is not None and speed and speed > 0:
+            mt = 9550.0 * power / speed
+    sigma = _find((
+        r"(?:допустим(?:ое|ая)\s+(?:нормальн(?:ое|ая)\s+)?напряжени(?:е|я)|sigma[_ ]?allow|σ[_ ]?доп)\D{0,30}(\d+(?:[\.,]\d+)?)\s*(?:мпа|mpa)",
+        r"(?:sigma|σ)\s*[=:]\s*(\d+(?:[\.,]\d+)?)\s*(?:мпа|mpa)\b",
+    ), text)
+    if mb is None or mt is None or sigma is None or sigma <= 0:
+        return None
+    sf = _safety_factor(text) or 1.0
+    if sf <= 0:
+        return None
+    mb_nmm = mb * sf * 1000.0
+    mt_nmm = mt * sf * 1000.0
+    me = math.sqrt(mb_nmm ** 2 + mt_nmm ** 2)
+    diameter = (32.0 * me / (math.pi * sigma)) ** (1.0 / 3.0)
+    return CalculationResult(
+        name="shaft diameter from bending+torsion",
+        values={
+            "Mb_Nm": mb,
+            "Mt_Nm": mt,
+            "SF": sf,
+            "Me_Nmm": me,
+            "sigma_allow_MPa": sigma,
+            "d_min_mm": diameter,
+        },
+        formula="d = cbrt(32/(pi*σ) * sqrt(Mb^2+Mt^2)), M in N·mm",
+        assumptions=(
+            "preliminary static estimate only",
+            "no stress concentration factors",
+            "not a certified shaft design",
+        ),
+    )
+
+
 def calculate_engineering(text: str) -> list[CalculationResult]:
+    """Prefer combined bending+torsion when Mb is present, else pure torsion."""
     results: list[CalculationResult] = []
+    combined = shaft_diameter_bending_torsion(text)
+    if combined:
+        results.append(combined)
+        return results
     shaft = shaft_diameter_from_torque(text)
     if shaft:
         results.append(shaft)
