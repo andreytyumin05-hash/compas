@@ -9,14 +9,16 @@ venv/
 *.egg-info/
 dist/
 build/
+**/bin/
+**/obj/
 .idea/
 .vscode/
 *.log
 .DS_Store
 .compas_tmp/
 scripts/generated/
-responce.txt
 response.txt
+responce.txt
 answers
 answers.txt
 *.a3d
