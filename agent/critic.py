@@ -9,18 +9,18 @@ import re
 from typing import Any, Dict, List, Optional, Tuple
 
 KNOWN_PART_METHODS = frozenset({
-    "create", "from_active", "sketch", "extrude", "cut", "revolve", "get_edges",
-    "chamfer", "fillet", "fillet_edge", "chamfer_edge", "hole", "pattern_holes_circular",
-    "pattern_holes_rect", "pattern_holes_points", "pattern_holes_linear", "hole_list",
-    "mirror_points", "slot", "step", "boss", "hex_boss", "ring_groove", "groove",
-    "keyway", "pocket", "counterbore", "countersink", "export", "export_formats", "close",
-    "mass_properties", "update", "param", "p", "params_dict", "param_graph", "name",
-    "var", "set_properties", "get_context", "set_view", "screenshot",
+    "create", "sketch", "extrude", "cut", "revolve", "get_edges", "chamfer", "fillet",
+    "fillet_edge", "chamfer_edge", "hole", "pattern_holes_circular", "pattern_holes_rect",
+    "pattern_holes_points", "pattern_holes_linear", "hole_list", "mirror_points", "slot",
+    "step", "boss", "hex_boss", "ring_groove", "groove", "keyway", "pocket", "counterbore",
+    "countersink", "export", "export_formats", "close", "mass_properties", "update", "param",
+    "p", "params_dict", "param_graph", "name", "var", "set_properties", "get_context",
+    "set_view", "screenshot",
 })
 
 _SKETCH_METHODS = frozenset({
-    "circle", "line", "arc", "rectangle", "rounded_rect", "stadium", "ellipse", "polygon",
-    "polyline", "arc_by_points", "spline", "bezier", "slot", "dim_linear", "dim_radial", "dim_rect",
+    "circle", "line", "axis_line", "arc", "rectangle", "rounded_rect", "stadium", "ellipse",
+    "polygon", "polyline", "arc_by_points", "spline", "bezier", "slot", "dim_linear", "dim_radial", "dim_rect",
 })
 
 _FORBIDDEN = (
@@ -66,9 +66,9 @@ def unknown_sketch_calls(code: str) -> List[str]:
 def summarize_ops(code: str) -> Dict[str, int]:
     c = code or ""
     keys = (
-        "extrude(", "cut(", "hole(", "pattern_holes", "circle(", "rectangle(",
-        "rounded_rect(", "polygon(", "spline(", "bezier(", "fillet(", "chamfer(",
-        "boss(", "step(", "revolve(", "slot(", "pocket(", "counterbore(", "ring_groove(",
+        "extrude(", "cut(", "hole(", "pattern_holes", "circle(", "rectangle(", "rounded_rect(",
+        "polygon(", "spline(", "bezier(", "fillet(", "chamfer(", "boss(", "step(",
+        "revolve(", "slot(", "pocket(", "counterbore(", "ring_groove(",
     )
     return {k.rstrip("("): c.lower().count(k.lower()) for k in keys}
 
@@ -84,7 +84,6 @@ def review_structure(task: str, code: str) -> List[str]:
         ln for ln in t.splitlines()
         if not ln.strip().startswith(("ops_order=", "правило:", "порядок:"))
     )
-
     n_ext = c.count("extrude(")
     n_cut = c.count("cut(")
     n_hole = c.count("hole(") + c.count("pattern_holes")
@@ -98,7 +97,6 @@ def review_structure(task: str, code: str) -> List[str]:
     unknown_sk = unknown_sketch_calls(code)
     if unknown_sk:
         issues.append("неизвестные sk." + ", sk.".join(unknown_sk) + " (нет в core)")
-
     for bad in _FORBIDDEN:
         if bad.lower() in c:
             issues.append(f"запрещённый фрагмент: {bad}")
@@ -115,42 +113,33 @@ def review_structure(task: str, code: str) -> List[str]:
 
     if cylindrical and n_rect > 0 and n_circ == 0 and n_revolve == 0:
         issues.append("для цилиндрической/ступенчатой детали использован rectangle без revolve")
-    if turned and n_revolve == 0 and n_ext < 2 and any(
-        w in t for w in ("ступен", "ступенчат", "вал", "шейк")
-    ):
+    if turned and n_revolve == 0 and n_ext < 2 and any(w in t for w in ("ступен", "ступенчат", "вал", "шейк")):
         issues.append("для точёной/ступенчатой детали нужен revolve-профиль или несколько additive features")
 
     if any(w in t for w in ("карман", "углублен", "шестигранн", "выборк")) or "feature=pocket" in t or "feature=hex_pocket" in t:
         if n_cut == 0 and "pocket(" not in c and n_hole == 0:
             issues.append("нужен cut/hole/pocket для кармана или углубления")
-
     if ("feature=groove" in t or "канавк" in t) and "ring_groove(" not in c and "groove(" not in c:
         if not (n_circ >= 2 and n_cut >= 1):
             issues.append("канавка: ring_groove или эквивалентная geometry + cut")
-
     if any(w in t for w in ("отверст", "крепеж")) or "feature=hole" in t or "feature=pattern_holes" in t:
         if n_hole == 0 and n_cut == 0:
             issues.append("в ТЗ отверстия, в коде нет hole/cut/pattern_holes")
-
     if "лопаст" in t or "spline_profile" in t:
         if "spline(" not in c and "bezier(" not in c:
             issues.append("для кривого профиля нужна spline/bezier геометрия")
-
     if any(w in t for w in ("диаметр", "длина", "ширина", "высота", "толщин", "размер")):
         if "part.param(" not in c:
             issues.append("критические размеры не вынесены в part.param()")
-
     if "depends_on=" in t or "parameter_relations:" in t or (" = " in t and "parameters:" in t):
         if "part.param(" not in c or "part.p(" not in c:
             issues.append("параметрическая зависимость из contract не отражена в коде")
-
     if re.search(r"chamfer\s*\(\s*size\s*=", c):
         issues.append("chamfer(size=...): используйте distance")
     if "part.update(" not in c:
         issues.append("нет part.update()")
     if n_rect and not n_circ and not n_revolve and (cylindrical or any(w in t for w in ("ø", "диаметр", "ступен", "бобыш", "пробк"))):
         issues.append("код похож на плиту, а ТЗ описывает круглую/ступенчатую геометрию")
-
     return list(dict.fromkeys(issues))
 
 
