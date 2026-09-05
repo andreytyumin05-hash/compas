@@ -1,4 +1,4 @@
-"""Build the generated KOMPAS script and verify vision-derived models."""
+"""Build and edit KOMPAS models with strict create/edit separation."""
 
 from __future__ import annotations
 
@@ -38,8 +38,7 @@ _EDIT_WORDS = (
 
 
 def _is_edit_task(task: str) -> bool:
-    low = (task or "").lower()
-    return any(word in low for word in _EDIT_WORDS)
+    return any(word in (task or "").lower() for word in _EDIT_WORDS)
 
 
 def execute_code(code: str) -> None:
@@ -87,53 +86,60 @@ def _collect_shots(verify_result: dict, work: Path) -> List[Path]:
 
 
 def _active_live_context() -> str:
-    """Read the currently open KOMPAS part before edit generation."""
     try:
         from core import Part
         part = Part.from_active()
         tree = snapshot_feature_tree(part)
         lines = [
-            "LIVE ACTIVE KOMPAS DOCUMENT = current open detail, source of truth for edit.",
+            "LIVE ACTIVE KOMPAS DOCUMENT = currently open detail; source of truth.",
             f"ACTIVE PART NAME: {part.name}",
         ]
         if tree:
             lines.append("ACTIVE FEATURE TREE:\n" + tree[:10000])
+        try:
+            variables = part.variables()
+            if variables:
+                lines.append("ACTIVE MODEL VARIABLES:\n" + repr(variables)[:7000])
+        except Exception:
+            pass
         return "\n\n".join(lines)
     except Exception as exc:
-        raise RuntimeError(f"Для режима изменения нужна открытая 3D-деталь КОМПАС: {exc}") from exc
+        raise RuntimeError(f"Для изменения нужна открытая 3D-деталь КОМПАС: {exc}") from exc
+
+
+def _prepare(task: str, mode: str) -> Tuple[str, str, str, Agent]:
+    normalized = re.sub(r"^\s*(?:распознал\s+так|detected|recognized)\s*[:\-]*\s*", "", (task or "").strip(), flags=re.I)
+    normalized = " ".join(normalized.replace(">>", " ").replace("|", " ").split())
+    edit_mode = mode == "edit" or (mode == "auto" and _is_edit_task(normalized))
+    engineering = build_engineering_context(normalized)
+    if edit_mode:
+        live_context = _active_live_context()
+        engineering = (engineering + "\n\n" if engineering else "") + live_context
+    return normalized, engineering, "edit" if edit_mode else "create", Agent()
 
 
 def run_task(task: str, *, max_com_retries: int = 3, visual_loop: Optional[bool] = None, mode: str = "auto") -> str:
-    normalized = re.sub(r"^\s*(?:распознал\s+так|detected|recognized)\s*[:\-]*\s*", "", (task or "").strip(), flags=re.I)
-    normalized = " ".join(normalized.replace(">>", " ").replace("|", " ").split())
-
-    edit_mode = mode == "edit" or (mode == "auto" and _is_edit_task(normalized))
+    normalized, engineering, resolved_mode, agent = _prepare(task, mode)
+    is_edit = resolved_mode == "edit"
     is_vision_task = "CAD_CONTRACT v2" in normalized or "CAD_CONTRACT v3" in normalized or "drawing2model" in normalized.lower()
     if visual_loop is None:
         explicit = os.getenv("COMPAS_VISUAL_LOOP")
         visual_loop = (explicit.strip().lower() in {"1", "true", "yes"}) if explicit is not None else is_vision_task
 
-    engineering = build_engineering_context(normalized)
-    if edit_mode:
-        live_context = _active_live_context()
-        engineering = (engineering + "\n\n" if engineering else "") + live_context
-
-    agent = Agent()
     started = time.time()
     code, errors = agent.generate_checked(
         normalized,
         max_retries=max(2, max_com_retries),
         context=engineering,
-        mode="edit" if edit_mode else "create",
+        mode=resolved_mode,
     )
     if errors or must_fix_holes(code):
         raise RuntimeError("Код не прошёл проверку: " + "; ".join((errors or []) + (["hole coverage"] if must_fix_holes(code) else [])))
-
-    if edit_mode and ("# COMPAS_EDIT_MODE" not in code or "Part.from_active()" not in code or "Part.create(" in code):
-        raise RuntimeError("LLM не сформировал безопасный edit-скрипт для открытой детали")
+    if is_edit and ("# COMPAS_EDIT_MODE" not in code or code.count("Part.from_active()") != 1 or "Part.create(" in code):
+        raise RuntimeError("LLM сформировал небезопасный edit-скрипт: нужна одна Part.from_active() и запрещён Part.create()")
 
     final = _ensure_visual_tail(code)
-    work = Path(tempfile.mkdtemp(prefix="compas_vis_"))
+    work = Path(tempfile.mkdtemp(prefix="compas_edit_" if is_edit else "compas_create_"))
     last_error: Optional[BaseException] = None
     max_wall = float(os.getenv("COMPAS_BUILD_TIMEOUT_SEC", "300"))
     vlm_deadline = float(os.getenv("COMPAS_VLM_TIMEOUT_SEC", "45"))
@@ -143,7 +149,6 @@ def run_task(task: str, *, max_com_retries: int = 3, visual_loop: Optional[bool]
             raise TimeoutError("build exceeded COMPAS_BUILD_TIMEOUT_SEC")
         try:
             execute_code(final)
-
             tree_text = ""
             try:
                 from core import Part
@@ -166,15 +171,15 @@ def run_task(task: str, *, max_com_retries: int = 3, visual_loop: Optional[bool]
                             {"role": "system", "content": get_system_prompt(normalized, extra_context=engineering)},
                             {"role": "user", "content": build_repair_prompt(normalized, final, issues + ["TREE/STATE:\n" + tree_text[:1200]], extra_context=engineering)},
                         ], temperature=0.1)
-                        repaired = normalize_code(agent._extract_code(raw or "", allow_edit=edit_mode))
+                        repaired = normalize_code(agent._extract_code(raw or "", allow_edit=is_edit))
                         ok, _ = validate_generated_code(repaired)
-                        if ok and (not edit_mode or ("Part.from_active()" in repaired and "Part.create(" not in repaired)):
+                        if ok and (not is_edit or ("Part.from_active()" in repaired and "Part.create(" not in repaired)):
                             good, _ = review_before_build(normalized, repaired, llm=None, use_llm=False)
                             if good:
                                 final = _ensure_visual_tail(repaired)
                                 continue
-                except Exception as exc:
-                    print(f"  visual verification failed: {exc}")
+                except Exception:
+                    pass
 
             remember(normalized, final, tree=tree_text, engineering=engineering)
             return final
@@ -187,18 +192,39 @@ def run_task(task: str, *, max_com_retries: int = 3, visual_loop: Optional[bool]
                     {"role": "system", "content": get_system_prompt(normalized, extra_context=engineering)},
                     {"role": "user", "content": build_repair_prompt(normalized, final, [str(exc)], extra_context=engineering)},
                 ], temperature=0.1)
-                repaired = normalize_code(agent._extract_code(raw or "", allow_edit=edit_mode))
+                repaired = normalize_code(agent._extract_code(raw or "", allow_edit=is_edit))
                 ok, _ = validate_generated_code(repaired)
-                if ok and (not edit_mode or ("Part.from_active()" in repaired and "Part.create(" not in repaired)):
+                if ok and (not is_edit or ("Part.from_active()" in repaired and "Part.create(" not in repaired)):
                     final = _ensure_visual_tail(repaired)
             except Exception:
                 pass
     raise RuntimeError(f"КОМПАС: {last_error}")
 
 
-def run_task_export(task: str, out_path: str | Path, fmt: str = "m3d", *, mode: str = "auto") -> Tuple[str, Path]:
+def run_edit_open_document(task: str, out_path: str | Path | None = None) -> Tuple[str, Optional[Path]]:
+    """Edit the active KOMPAS document. Never creates a second document."""
     from core import Part
-    code = run_task(task, mode=mode)
+    from core.model_store import latest_model_path, store_latest_model
+
+    before = Part.from_active()
+    before_name = before.name
+    code = run_task(task, mode="edit", visual_loop=False)
+    after = Part.from_active()
+    if before_name and after.name and before_name != after.name:
+        raise RuntimeError("Активный документ изменился во время edit; изменение отменено как небезопасное")
+    target = Path(out_path) if out_path is not None else latest_model_path()
+    exported = after.export(target, fmt="m3d")
+    return code, store_latest_model(exported)
+
+
+def run_task_export(task: str, out_path: str | Path, fmt: str = "m3d", *, mode: str = "create") -> Tuple[str, Path]:
+    if mode == "edit":
+        code, path = run_edit_open_document(task, out_path)
+        if path is None:
+            raise RuntimeError("edit не сохранил актуальную модель")
+        return code, path
+    from core import Part
+    code = run_task(task, mode="create")
     return code, Part.from_active().export(out_path, fmt=fmt)
 
 
