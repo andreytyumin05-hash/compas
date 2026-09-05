@@ -6,70 +6,70 @@
 - `main` is stable — do not modify
 - Do not create additional branches
 
-## Confirmed in this pass
-- Windows installer was actually run from an elevated `cmd.exe` and reached MSBuild successfully.
-- Visual Studio/MSBuild path is valid: `D:\VS_INST\PROGRAM\MSBuild\Current\Bin\MSBuild.exe`.
-- The Add-In build failed only because `PositionBesideKompas(Form form)` accessed `Form.PreferredWidth` / `Form.PreferredHeight`, which do not exist on WinForms `Form`.
-- Fixed `addon/csharp/CompasAiCad.cs` to use the already initialized `Form.Width` / `Form.Height` values instead.
-- Commit: `cc000c4538b6995fae5fa679d3c3c324710c23d0`.
+## Latest confirmed user-side state
+- Add-In installer completed successfully on Windows: MSBuild, COM registration, TLB export/registration and KOMPAS AddIn registration all succeeded.
+- User restarted/opened KOMPAS and can see AI CAD panel, but it is still a separate floating WinForms window over KOMPAS.
+- This is considered incorrect UX. The project must not silently fall back to a top-level overlay anymore.
+- User has set these environment variables before launching KOMPAS/Python:
+  - `COMPAS_REPO=D:\учеба\ML_study\compas`
+  - `COMPAS_PYTHON=D:\учеба\ML_study\compas\venv\Scripts\python.exe`
+  - `COMPAS_BIN=D:\учеба\Bin`
+  - `COMPAS_EXE=D:\учеба\Bin\kStudy.exe`
+- `COMPAS_REPO` and `COMPAS_PYTHON` are explicitly consumed by the Add-In. `COMPAS_BIN`/`COMPAS_EXE` are inherited by child processes but were not previously wired into the bridge; inspect and wire them only where the runtime actually needs them.
 
-## Previously done (still valid, not live-verified here)
-1. Create vs edit path (`run_edit_open_document`, `Part.from_active`, no `Part.create` in edit generation/validation)
-2. Live variables API: `part.variables()` / `part.set_variable(...)` (KOMPAS v23 still requires live confirmation)
-3. Tree snapshot includes variables
-4. Edit validation: `# COMPAS_EDIT_MODE`, one `from_active`, no create
-5. Add-In PropertyManager integration probe exists in C# (`PropertyManagerBackend.cs`)
-6. Sketch dims/spline dual-path (`ko_LDimParam=45`, `tPar.Init(0)`, orientation `ps`) — smoke False until user confirms
-7. Parametric templates use `part.param` / `part.p`
-8. Contract emits `feature_order` / planes via `schema.spec_to_task_text`
+## Latest implementation changes
+1. `addon/csharp/PropertyManagerBackend.cs`
+   - Reworked native initialization to use documented `IApplication::CreatePropertyManager(false)` — the standard KOMPAS PropertyManager.
+   - Gets `PropertyTabs`, creates/reuses `AI CAD`, gets `PropertyControls`, adds `ksControlUserWindow` (47), then binds the WinForms HWND as the content.
+   - This replaces the previous speculative `PropertyManager/CreateTab/AddControl` path.
+   - Still uses late-bound COM because the project does not reference the KOMPAS type library at compile time.
+   - The exact user-window handle binding remains a live KOMPAS-v23 verification point.
 
-## Important UI status
-- `CompasAiCad.cs` still contains a WinForms fallback path when native PropertyManager initialization fails.
-- Therefore the native/docked panel is **not yet proven** on the user's KOMPAS v23 installation.
-- Do not describe the panel as fully native/docked until the user confirms it visually after rebuild/restart.
-- `COMPAS_NATIVE_PROPERTY_PANEL=1` remains a diagnostic switch in the current code; it is not intended as the final UX.
+2. `addon/csharp/CompasAiCad.cs`
+   - Removed the separate-window fallback completely.
+   - If native PropertyManager integration fails, the Add-In now reports a clear error instead of opening a floating overlay.
+   - When native hosting succeeds, the task box is focused immediately.
+   - This is intentional: do not reintroduce the fake overlay as a fallback.
 
-## Known gaps (do not fake)
+3. `agent/calculations.py`
+   - Fixed a real Python syntax error in `_speed_rpm`: an invalid tuple construction caused `invalid syntax` around the calculations parser.
+   - Commit containing this fix: `50c67ecf3b6137aa60ab394f3476e97b3838516b`.
+
+## Official KOMPAS SDK facts used for the UI fix
+- `CreatePropertyManager(FALSE)` accesses the standard KOMPAS-3D system PropertyManager; libraries can add their own tabs to it.
+- `IPropertyManager.PropertyTabs` exposes the tab collection.
+- `IPropertyControls.Add(ControlTypeEnum)` creates native PropertyManager controls.
+- `ksControlUserWindow = 47` is an official v23 control type.
+- Standard PropertyManager is the intended integrated UI; library-created panels otherwise have floating/side placement limitations.
+
+## Known gaps — do not fake
 | Item | Status |
 |------|--------|
-| dim_linear / dim_radial live | smoke returned False earlier; needs diagnostic output from `scripts/smoke_dims.py` |
+| Native PropertyManager panel | code changed to standard manager; needs rebuild + KOMPAS restart + visual confirmation |
+| ksControlUserWindow HWND binding | late-bound; must be confirmed on actual KOMPAS v23 |
+| Native PropertyManager events | not yet proven; current hosted WinForms buttons still execute through the embedded form |
+| dim_linear / dim_radial live | smoke previously False; needs diagnostic output |
 | shell / thread / loft / sweep / sketch_on_face | **unsupported** in ops_registry |
 | fillet/chamfer edge selection | best_effort only |
-| Add-In native docked panel | **needs fresh rebuild + KOMPAS restart + visual confirmation** |
 | Edit path mutates open doc | code present; needs live test |
-| GOST/ISO evidence web layer | trigger exists; not an authoritative standards database |
-| Long web/standards requests | must have strict timeout/budget; previous user test appeared to stall for ~7 minutes |
+| GOST/ISO evidence web layer | trigger exists; not authoritative standards database |
+| Long web/standards requests | previous user test appeared to stall ~7 min; enforce strict timeout/source budget |
 
-## Next priorities (ordered)
-1. Rebuild Add-In and verify whether the panel is truly integrated into KOMPAS rather than a separate WinForms window.
-2. Verify create → edit on the same active document and confirm active-document identity is unchanged.
-3. Add native feature resolver/mutation for real edits such as `diameter 30 -> 35` instead of reconstructing the part.
-4. Verify revolve/spline robustness for shafts and curved profiles.
-5. Harden standards/GOST web lookup with strict timeout, source limit, one retry maximum, and explicit fallback/assumption reporting.
-6. Clean `docs` / `knowledge` and remove stale or misleading implementation notes only after auditing references.
+## Immediate next test
+After pulling/rebuilding the latest `features/vision`:
+1. Close KOMPAS completely.
+2. Pull branch and reinstall Add-In as Administrator.
+3. Start KOMPAS normally.
+4. Open `Панель AI CAD`.
+5. **Expected:** AI CAD is a real tab/control inside KOMPAS PropertyManager. There must be no separate top-level AI CAD window.
+6. If it still becomes a floating window, do not continue CAD tests; inspect the actual v23 `IPropertyUserWindow` interface/handle binding and COM event hookup.
+7. Once embedded, first test the exact user request about the slow shaft, but standards lookup must have a strict time budget and must return explicit assumptions if GOST evidence is unavailable.
 
-## Exact user-side test after pulling this commit
-```powershell
-cd D:\учеба\ML_study\compas
-git checkout features/vision
-git pull origin features/vision
-.\venv\Scripts\activate
-```
-Then from an **Administrator cmd.exe**:
-```cmd
-cd /d "D:\учеба\ML_study\compas"
-venv\Scripts\activate
-powershell -ExecutionPolicy Bypass -File ".\addon\install.ps1"
-```
-If the build succeeds: completely restart KOMPAS-3D and open `Панель AI CAD`.
-First report only whether the panel is inside/docked in KOMPAS or appears as a separate floating window. Then test:
+## User's current shaft test
 ```text
-создай цилиндр диаметром 50 длиной 100
+создай вал тихоходный, материал чугун, диаметры 45 40 45 и конический концевой участок 37 до 30 длина 20, могу ошибаться, посмотри госты концевых участков при начальном 37 (либо ближайший гостовский) длины 3-х наших диаметров соответственно 20 25 20
 ```
-followed by:
-```text
-измени диаметр на 60
-```
+Interpretation must be explicit: preserve the requested 45/40/45 sequence, treat 37→30×20 as a tapered end unless standards lookup resolves a standard end, and do not silently invent dimensions. Material `чугун` is unusual for a shaft and should be flagged, not silently replaced.
 
 ## Environment limit
 No live KOMPAS COM is available in this sandbox. Native KOMPAS behavior must be confirmed by the user on Windows.
