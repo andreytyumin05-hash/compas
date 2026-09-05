@@ -31,7 +31,7 @@ namespace CompasAiCad
         [return: MarshalAs(UnmanagedType.BStr)]
         public string ExternalMenuItem(short number, ref short itemType, ref short command)
         {
-            if (number == 0)
+            if (number == 1)
             {
                 itemType = 1;
                 command = 1;
