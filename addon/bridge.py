@@ -1,11 +1,15 @@
 """CLI bridge used by the KOMPAS ActiveX add-in.
 
 The native add-in owns only UI/lifecycle. This process reuses the existing Python
-agent and core so there is exactly one CAD implementation.
+agent and core so there is exactly one CAD implementation. Internal Python logs
+are deliberately suppressed: the UI receives only a compact machine-readable
+result.
 """
 from __future__ import annotations
 
 import argparse
+import contextlib
+import io
 import json
 import os
 import sys
@@ -17,14 +21,12 @@ if str(ROOT) not in sys.path:
 
 
 def _task_from_file(path: str) -> str:
-    p = Path(path)
-    return p.read_text(encoding="utf-8").strip()
+    return Path(path).read_text(encoding="utf-8").strip()
 
 
 def _create(task: str) -> Path:
     from agent.build import run_task_export
     from core.model_store import latest_model_path
-
     _, out = run_task_export(task, latest_model_path(), fmt="m3d")
     return Path(out)
 
@@ -32,24 +34,29 @@ def _create(task: str) -> Path:
 def _save() -> Path:
     from core import Part
     from core.model_store import latest_model_path, store_latest_model
-
     part = Part.from_active()
-    # Exporting through the existing core keeps the save semantics identical to
-    # Telegram/desktop builds and guarantees that only the latest .m3d is retained.
     out = latest_model_path()
     exported = part.export(out, fmt="m3d")
     return store_latest_model(exported)
 
 
+def _run_quiet(fn):
+    # Rich/COM/LLM diagnostics belong in logs, not in the KOMPAS text panel.
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+        return fn()
+
+
 def main() -> int:
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("action", choices=("create", "edit", "save"))
     parser.add_argument("--task-file", default="")
     args = parser.parse_args()
 
     try:
         if args.action == "save":
-            result = _save()
+            result = _run_quiet(_save)
         else:
             if not args.task_file:
                 raise ValueError("--task-file is required")
@@ -57,8 +64,13 @@ def main() -> int:
             if not task:
                 raise ValueError("empty task")
             if args.action == "edit":
-                task = "Измени последнюю модель. Сохрани существующую конструктивную логику и параметры, меняй только то, что явно указано ниже.\n\n" + task
-            result = _create(task)
+                task = (
+                    "EDIT REQUEST. Use the latest saved model context and generated script as the current design. "
+                    "Preserve all existing features, named parameters and relations unless this request explicitly changes them. "
+                    "Return a complete replacement CAD script that implements only the requested delta.\n\n"
+                    + task
+                )
+            result = _run_quiet(lambda: _create(task))
         print(json.dumps({"ok": True, "path": str(result)}, ensure_ascii=False))
         return 0
     except Exception as exc:
