@@ -19,11 +19,11 @@
 
 ## Latest implementation changes
 1. `addon/csharp/PropertyManagerBackend.cs`
-   - Reworked native initialization to use documented `IApplication::CreatePropertyManager(false)` — the standard KOMPAS PropertyManager.
-   - Gets `PropertyTabs`, creates/reuses `AI CAD`, gets `PropertyControls`, adds `ksControlUserWindow` (47), then binds the WinForms HWND as the content.
-   - This replaces the previous speculative `PropertyManager/CreateTab/AddControl` path.
+   - Native initialization now uses **only** documented `IApplication::CreatePropertyManager(false)`, i.e. the standard KOMPAS process PropertyManager.
+   - The previous `true` attempt was removed because `CreatePropertyManager(true)` creates a library-owned PropertyManager, which is not the desired integrated target.
+   - Gets `PropertyTabs`, creates the `AI CAD` tab, gets `PropertyControls`, adds `ksControlUserWindow` (47), then attempts to bind the WinForms HWND.
    - Still uses late-bound COM because the project does not reference the KOMPAS type library at compile time.
-   - The exact user-window handle binding remains a live KOMPAS-v23 verification point.
+   - The exact `IPropertyUserWindow`/HWND binding remains a live KOMPAS-v23 verification point.
 
 2. `addon/csharp/CompasAiCad.cs`
    - Removed the separate-window fallback completely.
@@ -37,6 +37,7 @@
 
 ## Official KOMPAS SDK facts used for the UI fix
 - `CreatePropertyManager(FALSE)` accesses the standard KOMPAS-3D system PropertyManager; libraries can add their own tabs to it.
+- `CreatePropertyManager(TRUE)` creates a separate library-owned PropertyManager and is **not** the target for the integrated AI CAD panel.
 - `IPropertyManager.PropertyTabs` exposes the tab collection.
 - `IPropertyControls.Add(ControlTypeEnum)` creates native PropertyManager controls.
 - `ksControlUserWindow = 47` is an official v23 control type.
@@ -73,3 +74,10 @@ Interpretation must be explicit: preserve the requested 45/40/45 sequence, treat
 
 ## Environment limit
 No live KOMPAS COM is available in this sandbox. Native KOMPAS behavior must be confirmed by the user on Windows.
+
+## Latest pass performed after external-model changes
+- Reviewed the newest branch head and the official KOMPAS SDK documentation again.
+- Found and fixed one architectural inconsistency: the backend was trying `CreatePropertyManager(true)` before `false`. That could create a library-owned PropertyManager instead of the standard integrated process panel.
+- Commit: `7c3ee64ba141194bce14808e8525c0e91d1c9856` — `Force standard integrated PropertyManager only`.
+- No fallback overlay was restored.
+- This change is deliberately narrow; the next required verification is a rebuild/reinstall on the user's KOMPAS v23 machine.
