@@ -17,8 +17,8 @@ _PART_METHODS = {
     "var", "set_properties", "get_context", "set_view", "screenshot",
 }
 _SKETCH_METHODS = {
-    "circle", "line", "arc", "rectangle", "rounded_rect", "stadium", "ellipse", "polygon",
-    "polyline", "arc_by_points", "spline", "bezier", "slot", "dim_linear", "dim_radial", "dim_rect",
+    "circle", "line", "axis_line", "arc", "rectangle", "rounded_rect", "stadium", "ellipse",
+    "polygon", "polyline", "arc_by_points", "spline", "bezier", "slot", "dim_linear", "dim_radial", "dim_rect",
 }
 _FORBIDDEN_NAMES = {"win32com", "pythoncom", "gencache", "Dispatch", "GetActiveObject"}
 _FORBIDDEN_CALLS = {"loft", "sweep", "shell", "thread", "sketch_on_face"}
