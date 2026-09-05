@@ -1,0 +1,8 @@
+D:\учеба\ML_study\compas\addon\csharp\obj\x64\Release\net48\CompasAiCad.csproj.AssemblyReference.cache
+D:\учеба\ML_study\compas\addon\csharp\obj\x64\Release\net48\CompasAiCad.GeneratedMSBuildEditorConfig.editorconfig
+D:\учеба\ML_study\compas\addon\csharp\obj\x64\Release\net48\CompasAiCad.csproj.CoreCompileInputs.cache
+D:\учеба\ML_study\compas\addon\csharp\obj\x64\Release\net48\CompasAiCad.sourcelink.json
+D:\учеба\ML_study\compas\addon\csharp\bin\x64\Release\net48\CompasAiCad.dll
+D:\учеба\ML_study\compas\addon\csharp\bin\x64\Release\net48\CompasAiCad.pdb
+D:\учеба\ML_study\compas\addon\csharp\obj\x64\Release\net48\CompasAiCad.dll
+D:\учеба\ML_study\compas\addon\csharp\obj\x64\Release\net48\CompasAiCad.pdb
