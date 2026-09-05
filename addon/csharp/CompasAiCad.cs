@@ -5,7 +5,6 @@ using System.Drawing;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
-using System.Threading;
 using System.Threading.Tasks;
 using System.Web.Script.Serialization;
 using System.Windows.Forms;
@@ -20,9 +19,7 @@ namespace CompasAiCad
     {
         private static readonly object Sync = new object();
         private static PanelForm _form;
-        private static Thread _uiThread;
         private static PropertyManagerBackend _native;
-        private static bool _hostedNative;
 
         [return: MarshalAs(UnmanagedType.BStr)] public string GetLibraryName() => "CompasAiCad";
         [return: MarshalAs(UnmanagedType.BStr)] public string DisplayLibraryName() => "AI CAD";
@@ -39,117 +36,74 @@ namespace CompasAiCad
             [In, MarshalAs(UnmanagedType.IDispatch)] object kompas_)
         {
             if (command != 1) return;
-            try { ShowPanel(kompas_); }
+            try { ShowInsideKompas(kompas_); }
             catch (Exception ex)
             {
-                MessageBox.Show("AI CAD: не удалось открыть встроенную панель.\n\n" + ex.Message,
+                MessageBox.Show(
+                    "AI CAD: не удалось встроить панель в КОМПАС.\n\n" + ex.Message +
+                    "\n\nОтдельное окно Windows намеренно не используется.",
                     "Compas AI CAD", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 
-        private static void ShowPanel(object kompas)
+        private static void ShowInsideKompas(object kompas)
         {
             lock (Sync)
             {
-                if (_form != null && !_form.IsDisposed && _hostedNative)
+                if (_form != null && !_form.IsDisposed && _native != null && _native.IsReady)
                 {
-                    try { _form.BeginInvoke((Action)(() => _form.FocusTaskBox())); } catch { }
+                    try { _form.FocusTaskBox(); } catch { }
+                    try { _native.ShowAgain(); } catch { }
                     return;
                 }
 
-                if (_form != null && !_form.IsDisposed)
+                if (_form != null)
                 {
-                    try { _form.BeginInvoke((Action)(() => _form.Close())); } catch { }
+                    try { if (!_form.IsDisposed) _form.Dispose(); } catch { }
                     _form = null;
                 }
-
-                PanelForm form = CreateFormOnStaThread();
-                _hostedNative = false;
-
-                try
+                if (_native != null)
                 {
-                    _native = new PropertyManagerBackend();
-                    form.PrepareAsChildHost();
-                    if (!_native.TryOpen(kompas, form.Handle, form.PreferredWidth, form.PreferredHeight))
-                    {
-                        _native.Dispose();
-                        _native = null;
-                        try { form.BeginInvoke((Action)(() => form.Close())); } catch { }
-                        throw new InvalidOperationException(
-                            "КОМПАС не принял AI CAD как встроенную вкладку PropertyManager. " +
-                            "Отдельное окно намеренно отключено: сначала исправляем нативную интеграцию.");
-                    }
-
-                    _hostedNative = true;
-                    form.BeginInvoke((Action)(() =>
-                    {
-                        form.SetHostMode(true);
-                        form.Show();
-                        form.FocusTaskBox();
-                    }));
-                }
-                catch
-                {
-                    try { _native?.Dispose(); } catch { }
+                    try { _native.ReleaseAll(); } catch { }
                     _native = null;
-                    _hostedNative = false;
-                    throw;
                 }
-            }
-        }
 
-        private static PanelForm CreateFormOnStaThread()
-        {
-            var ready = new ManualResetEventSlim(false);
-            PanelForm created = null;
-            Exception error = null;
-            _uiThread = new Thread(() =>
-            {
-                try
+                var form = new PanelForm();
+                form.PrepareAsChildHost();
+                IntPtr hwnd = form.Handle;
+                if (hwnd == IntPtr.Zero)
+                    throw new InvalidOperationException("Не удалось создать HWND панели.");
+
+                var backend = new PropertyManagerBackend();
+                if (!backend.TryOpen(kompas, hwnd, form.PreferredWidth, form.PreferredHeight))
                 {
-                    Application.EnableVisualStyles();
-                    Application.SetCompatibleTextRenderingDefault(false);
-                    created = new PanelForm();
-                    _form = created;
-                    ready.Set();
-                    Application.Run(created);
+                    string detail = backend.LastError ?? "неизвестная ошибка PropertyManager";
+                    try { form.Dispose(); } catch { }
+                    throw new InvalidOperationException(detail);
                 }
-                catch (Exception ex) { error = ex; ready.Set(); }
-                finally
-                {
-                    lock (Sync)
-                    {
-                        if (ReferenceEquals(_form, created)) _form = null;
-                        try { _native?.Dispose(); } catch { }
-                        _native = null;
-                        _hostedNative = false;
-                    }
-                }
-            });
-            _uiThread.IsBackground = true;
-            _uiThread.SetApartmentState(ApartmentState.STA);
-            _uiThread.Start();
-            if (!ready.Wait(12000)) throw new TimeoutException("UI AI CAD не поднялся за 12 с.");
-            if (error != null) throw error;
-            if (created == null || created.IsDisposed) throw new InvalidOperationException("Не удалось создать UI AI CAD.");
-            return created;
+
+                form.Visible = true;
+                form.SetHostMode(true);
+                _form = form;
+                _native = backend;
+            }
         }
 
         public void ClosePanel()
         {
             lock (Sync)
             {
-                try { _native?.Dispose(); } catch { }
+                try { _native?.ReleaseAll(); } catch { }
                 _native = null;
-                _hostedNative = false;
-                try { if (_form != null && !_form.IsDisposed) _form.BeginInvoke((Action)(() => _form.Close())); } catch { }
+                try { if (_form != null && !_form.IsDisposed) _form.Dispose(); } catch { }
+                _form = null;
             }
         }
 
         private sealed class PanelForm : Form
         {
-            public int PreferredWidth { get { return 300; } }
-            public int PreferredHeight { get { return 520; } }
+            public int PreferredWidth { get { return 280; } }
+            public int PreferredHeight { get { return 480; } }
 
             private readonly TextBox _task;
             private readonly Label _status;
@@ -161,29 +115,25 @@ namespace CompasAiCad
             public PanelForm()
             {
                 Text = "AI CAD";
-                Width = PreferredWidth;
-                Height = PreferredHeight;
-                FormBorderStyle = FormBorderStyle.SizableToolWindow;
+                ClientSize = new Size(PreferredWidth, PreferredHeight);
+                FormBorderStyle = FormBorderStyle.None;
                 ShowInTaskbar = false;
-                StartPosition = FormStartPosition.Manual;
-                MinimizeBox = false;
-                MaximizeBox = false;
+                ControlBox = false;
                 TopMost = false;
                 BackColor = Color.FromArgb(245, 246, 248);
                 Font = new Font("Segoe UI", 9F);
-                MinimumSize = new Size(260, 380);
 
-                var header = new Panel { Dock = DockStyle.Top, Height = 44, BackColor = Color.FromArgb(32, 90, 167), Padding = new Padding(12, 10, 12, 8) };
+                var header = new Panel { Dock = DockStyle.Top, Height = 40, BackColor = Color.FromArgb(32, 90, 167), Padding = new Padding(10, 8, 10, 6) };
                 header.Controls.Add(new Label { Text = "AI CAD", Dock = DockStyle.Fill, ForeColor = Color.White, Font = new Font("Segoe UI", 11F, FontStyle.Bold), TextAlign = ContentAlignment.MiddleLeft });
 
-                _modeHint = new Label { Text = "Встроенная панель КОМПАС. Описание передаётся напрямую в CAD-агент.", Dock = DockStyle.Top, Height = 40, Padding = new Padding(12, 8, 12, 4), ForeColor = Color.FromArgb(60, 60, 60) };
-                var taskLabel = new Label { Text = "Задача", Dock = DockStyle.Top, Height = 22, Padding = new Padding(12, 4, 12, 0), Font = new Font("Segoe UI", 8.5F, FontStyle.Bold) };
+                _modeHint = new Label { Text = "Вкладка Панели свойств КОМПАС (не отдельное окно).", Dock = DockStyle.Top, Height = 36, Padding = new Padding(10, 6, 10, 2), ForeColor = Color.FromArgb(60, 60, 60) };
+                var taskLabel = new Label { Text = "Задача", Dock = DockStyle.Top, Height = 20, Padding = new Padding(10, 2, 10, 0), Font = new Font("Segoe UI", 8.5F, FontStyle.Bold) };
 
-                var taskHost = new Panel { Dock = DockStyle.Top, Height = 172, Padding = new Padding(12, 0, 12, 8) };
+                var taskHost = new Panel { Dock = DockStyle.Top, Height = 150, Padding = new Padding(10, 0, 10, 6) };
                 _task = new TextBox { Multiline = true, AcceptsReturn = true, ScrollBars = ScrollBars.Vertical, Dock = DockStyle.Fill, Font = new Font("Segoe UI", 9.5F), BorderStyle = BorderStyle.FixedSingle };
                 taskHost.Controls.Add(_task);
 
-                var buttons = new TableLayoutPanel { Dock = DockStyle.Top, Height = 76, ColumnCount = 2, RowCount = 2, Padding = new Padding(10, 4, 10, 4) };
+                var buttons = new TableLayoutPanel { Dock = DockStyle.Top, Height = 72, ColumnCount = 2, RowCount = 2, Padding = new Padding(8, 2, 8, 2) };
                 buttons.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50F));
                 buttons.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50F));
                 buttons.RowStyles.Add(new RowStyle(SizeType.Percent, 50F));
@@ -201,9 +151,9 @@ namespace CompasAiCad
                 buttons.Controls.Add(_save, 0, 1);
                 buttons.Controls.Add(_clear, 1, 1);
 
-                _progress = new ProgressBar { Dock = DockStyle.Top, Height = 6, Style = ProgressBarStyle.Marquee, MarqueeAnimationSpeed = 0 };
-                var statusHeader = new Label { Text = "Статус", Dock = DockStyle.Top, Height = 22, Padding = new Padding(12, 6, 12, 0), Font = new Font("Segoe UI", 8.5F, FontStyle.Bold) };
-                _status = new Label { Text = "Готово.", Dock = DockStyle.Fill, Padding = new Padding(12, 4, 12, 12), ForeColor = Color.FromArgb(40, 40, 40) };
+                _progress = new ProgressBar { Dock = DockStyle.Top, Height = 5, Style = ProgressBarStyle.Marquee, MarqueeAnimationSpeed = 0 };
+                var statusHeader = new Label { Text = "Статус", Dock = DockStyle.Top, Height = 20, Padding = new Padding(10, 4, 10, 0), Font = new Font("Segoe UI", 8.5F, FontStyle.Bold) };
+                _status = new Label { Text = "Готово.", Dock = DockStyle.Fill, Padding = new Padding(10, 2, 10, 10), ForeColor = Color.FromArgb(40, 40, 40) };
 
                 Controls.Add(_status);
                 Controls.Add(statusHeader);
@@ -216,27 +166,24 @@ namespace CompasAiCad
             }
 
             private static Button MakeButton(string text) =>
-                new Button { Text = text, Dock = DockStyle.Fill, Margin = new Padding(3), FlatStyle = FlatStyle.System, Font = new Font("Segoe UI", 9F) };
+                new Button { Text = text, Dock = DockStyle.Fill, Margin = new Padding(3), FlatStyle = FlatStyle.System };
 
             public void PrepareAsChildHost()
             {
                 FormBorderStyle = FormBorderStyle.None;
                 ShowInTaskbar = false;
+                ControlBox = false;
                 Size = new Size(PreferredWidth, PreferredHeight);
             }
 
-            public void SetHostMode(bool nativeHosted)
+            public void SetHostMode(bool insideKompas)
             {
-                FormBorderStyle = FormBorderStyle.None;
-                _modeHint.Text = nativeHosted
-                    ? "Встроенная панель KOMPAS PropertyManager."
-                    : "Встроенная панель.";
+                _modeHint.Text = insideKompas
+                    ? "Вкладка Панели свойств КОМПАС. 3D-вид не перекрывается."
+                    : "Режим встраивания.";
             }
 
-            public void FocusTaskBox()
-            {
-                try { _task.Focus(); } catch { }
-            }
+            public void FocusTaskBox() { try { _task.Focus(); } catch { } }
 
             private void SetStatus(string text, bool error)
             {
@@ -269,10 +216,7 @@ namespace CompasAiCad
                     if (action != "save") File.WriteAllText(taskFile, _task.Text.Trim(), new UTF8Encoding(false));
                     ProcessResult result = await Task.Run(() => ExecutePython(repo, python, action, taskFile));
                     string message = ExtractUiMessage(result.Output, result.Error, result.ExitCode, action);
-                    bool err = result.ExitCode != 0 || (message != null && (
-                        message.IndexOf("ошиб", StringComparison.OrdinalIgnoreCase) >= 0
-                        || message.IndexOf("error", StringComparison.OrdinalIgnoreCase) >= 0
-                        || message.IndexOf("не выполнен", StringComparison.OrdinalIgnoreCase) >= 0));
+                    bool err = result.ExitCode != 0 || LooksLikeError(message);
                     SetStatus(message, err);
                 }
                 catch (Exception ex) { SetStatus(SanitizeMessage(ex.Message), true); }
@@ -281,6 +225,14 @@ namespace CompasAiCad
                     try { if (File.Exists(taskFile)) File.Delete(taskFile); } catch { }
                     SetBusy(false);
                 }
+            }
+
+            private static bool LooksLikeError(string message)
+            {
+                if (string.IsNullOrEmpty(message)) return false;
+                return message.IndexOf("ошиб", StringComparison.OrdinalIgnoreCase) >= 0
+                    || message.IndexOf("error", StringComparison.OrdinalIgnoreCase) >= 0
+                    || message.IndexOf("не выполнен", StringComparison.OrdinalIgnoreCase) >= 0;
             }
 
             private static ProcessResult ExecutePython(string repo, string python, string action, string taskFile)
@@ -359,40 +311,56 @@ namespace CompasAiCad
                 {
                     string t = line.Trim();
                     if (t.Length == 0) continue;
-                    if (t.StartsWith("Traceback", StringComparison.OrdinalIgnoreCase)) continue;
-                    if (t.StartsWith("File \"", StringComparison.OrdinalIgnoreCase)) continue;
-                    if (t.Contains("site-packages") || t.Contains("\venv\\")) continue;
+                    string low = t.ToLowerInvariant();
+                    if (low.Contains("traceback") || low.Contains("file \"") || low.Contains("win32com") || low.Contains("com_error"))
+                        continue;
                     kept.Add(t);
-                    if (kept.Count >= 3) break;
+                    if (kept.Count >= 4) break;
                 }
-                string result = string.Join("\n", kept);
+                string result = string.Join(" ", kept);
                 if (result.Length > 400) result = result.Substring(0, 397) + "…";
                 return result;
             }
 
-            private static string FindRepo()
-            {
-                string env = Environment.GetEnvironmentVariable("COMPAS_REPO");
-                if (!string.IsNullOrWhiteSpace(env) && Directory.Exists(env)) return Path.GetFullPath(env);
-                return AppDomain.CurrentDomain.BaseDirectory;
-            }
-
             private static string FindPython(string repo)
             {
-                string env = Environment.GetEnvironmentVariable("COMPAS_PYTHON");
-                if (!string.IsNullOrWhiteSpace(env) && File.Exists(env)) return env;
-                string candidate = Path.Combine(repo, "venv", "Scripts", "python.exe");
-                if (File.Exists(candidate)) return candidate;
+                string configured = Environment.GetEnvironmentVariable("COMPAS_PYTHON");
+                string[] candidates = { Path.Combine(repo, "venv", "Scripts", "python.exe"), configured ?? "", "python.exe" };
+                foreach (string item in candidates)
+                {
+                    if (string.IsNullOrWhiteSpace(item)) continue;
+                    if (Path.IsPathRooted(item)) { if (File.Exists(item)) return item; }
+                    else if (item == "python.exe") return item;
+                }
                 return "python.exe";
             }
 
-            private readonly struct ProcessResult
+            private static string FindRepo()
             {
-                public readonly int ExitCode;
-                public readonly string Output;
-                public readonly string Error;
-                public ProcessResult(int exitCode, string output, string error) { ExitCode = exitCode; Output = output; Error = error; }
+                string configured = Environment.GetEnvironmentVariable("COMPAS_REPO");
+                if (!string.IsNullOrWhiteSpace(configured) && File.Exists(Path.Combine(configured, "agent", "build.py")))
+                    return configured;
+                DirectoryInfo dir = new DirectoryInfo(AppDomain.CurrentDomain.BaseDirectory);
+                while (dir != null)
+                {
+                    if (File.Exists(Path.Combine(dir.FullName, "agent", "build.py"))) return dir.FullName;
+                    dir = dir.Parent;
+                }
+                return Directory.GetCurrentDirectory();
             }
+        }
+
+        private readonly struct ProcessResult
+        {
+            public ProcessResult(int exitCode, string output, string error)
+            {
+                ExitCode = exitCode;
+                Output = output ?? string.Empty;
+                Error = error ?? string.Empty;
+            }
+            public int ExitCode { get; }
+            public string Output { get; }
+            public string Error { get; }
         }
     }
 }
