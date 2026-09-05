@@ -27,15 +27,16 @@ def _norm(task: str) -> str:
 
 
 def remember(task: str, code: str, *, tree: str = "", engineering: str = "") -> None:
-    if not code or "Part.create" not in code:
+    """Replace the single current context after a successful build/edit."""
+    if not code or ("Part.create" not in code and "Part.from_active" not in code):
         return
     _LATEST.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "task_norm": _norm(task),
         "task": task[:4000],
-        "code": code[:14000],
-        "tree": tree[:8000],
-        "engineering": engineering[:6000],
+        "code": code[:16000],
+        "tree": tree[:10000],
+        "engineering": engineering[:7000],
     }
     _LATEST.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
@@ -66,14 +67,14 @@ def latest_edit_context(task: str) -> str:
     parts = [
         "LATEST MODEL = current source of truth for this edit.",
         f"LATEST TASK:\n{str(row.get('task') or '')[:4000]}",
-        f"LATEST GENERATED SCRIPT:\n```python\n{str(row.get('code') or '')[:14000]}\n```",
+        f"LATEST GENERATED SCRIPT:\n```python\n{str(row.get('code') or '')[:16000]}\n```",
     ]
     tree = str(row.get("tree") or "").strip()
     if tree:
-        parts.append("LATEST FEATURE TREE:\n" + tree[:8000])
+        parts.append("LATEST FEATURE TREE:\n" + tree[:10000])
     engineering = str(row.get("engineering") or "").strip()
     if engineering:
-        parts.append("LATEST ENGINEERING CONTEXT:\n" + engineering[:5000])
+        parts.append("LATEST ENGINEERING CONTEXT:\n" + engineering[:6000])
     return "\n\n".join(parts)
 
 
