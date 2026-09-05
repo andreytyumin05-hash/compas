@@ -20,10 +20,8 @@ namespace CompasAiCad
         private static Thread _uiThread;
         private static PropertyManagerBackend _native;
 
-        [return: MarshalAs(UnmanagedType.BStr)]
-        public string GetLibraryName() => "CompasAiCad";
-        [return: MarshalAs(UnmanagedType.BStr)]
-        public string DisplayLibraryName() => "AI CAD";
+        [return: MarshalAs(UnmanagedType.BStr)] public string GetLibraryName() => "CompasAiCad";
+        [return: MarshalAs(UnmanagedType.BStr)] public string DisplayLibraryName() => "AI CAD";
         public bool IsOnApplication7() => true;
 
         [return: MarshalAs(UnmanagedType.BStr)]
@@ -47,9 +45,9 @@ namespace CompasAiCad
                 return;
             try
             {
-                // Native IPropertyManager is opt-in until verified against the local
-                // KOMPAS v23 type library. Any COM mismatch falls back to the proven
-                // WinForms child panel instead of breaking the add-in.
+                // A registry/environment setting may enable the native panel.
+                // If the local KOMPAS automation type library rejects any member,
+                // the known-good WinForms child panel remains available.
                 if (IsNativePanelEnabled() && TryShowNative(kompas_))
                     return;
 
