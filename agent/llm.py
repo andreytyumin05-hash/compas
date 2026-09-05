@@ -76,43 +76,20 @@ class GroqLLM(BaseLLM):
 
 
 class GeminiLLM(BaseLLM):
-    """Gemini using google-genai, falling back to the legacy SDK."""
+    """Gemini client using the current google-genai SDK only."""
 
     def __init__(self, api_key: str, model: str):
-        self.api_key = api_key
-        self.model_name = model
-        self._client = None
-        self._types = None
-        self._legacy_model = None
         try:
             from google import genai
             from google.genai import types
-            self._client = genai.Client(api_key=api_key)
-            self._types = types
-            self._mode = "new"
-        except ImportError:
-            import google.generativeai as genai
-            genai.configure(api_key=api_key)
-            self._legacy_model = genai.GenerativeModel(model)
-            self._mode = "legacy"
+        except ImportError as exc:
+            raise RuntimeError("Gemini requires google-genai. Run: pip install -r requirements.txt") from exc
+        self.model_name = model
+        self._client = genai.Client(api_key=api_key)
+        self._types = types
         self.name = f"gemini:{model}"
 
     def chat(self, messages: List[Dict[str, str]], temperature: float = 0.2) -> str:
-        if self._mode == "legacy":
-            system = ""
-            parts: List[str] = []
-            for message in messages:
-                role, content = message.get("role", "user"), message.get("content", "")
-                if role == "system":
-                    system = content
-                else:
-                    parts.append(("[Assistant]\n" if role == "assistant" else "") + content)
-            response = self._legacy_model.generate_content(
-                (system + "\n\n" if system else "") + "\n\n".join(parts),
-                generation_config={"temperature": temperature},
-            )
-            return getattr(response, "text", None) or ""
-
         transcript = []
         for message in messages:
             role = message.get("role", "user").upper()
@@ -149,7 +126,6 @@ class CascadeLLM(BaseLLM):
         failures: List[str] = []
         for backend in self.backends:
             try:
-                log.info("LLM try %s", backend.name)
                 text = backend.chat(messages, temperature=temperature)
                 if text.strip():
                     return text.strip()
