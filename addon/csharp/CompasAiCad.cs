@@ -69,13 +69,16 @@ namespace CompasAiCad
             {
                 if (_form != null && !_form.IsDisposed)
                 {
-                    try {
-                        _form.BeginInvoke((Action)(() => {
+                    try
+                    {
+                        _form.BeginInvoke((Action)(() =>
+                        {
                             if (!_hostedNative) PositionBesideKompas(_form);
                             _form.Show();
                             _form.BringToFront();
                         }));
-                    } catch { }
+                    }
+                    catch { }
                     return;
                 }
 
@@ -113,7 +116,8 @@ namespace CompasAiCad
                     throw new InvalidOperationException("COMPAS_NATIVE_PROPERTY_PANEL=1, но PropertyManager недоступен.");
                 }
 
-                form.BeginInvoke((Action)(() => {
+                form.BeginInvoke((Action)(() =>
+                {
                     form.SetHostMode(false);
                     PositionBesideKompas(form);
                     form.Show();
@@ -132,13 +136,18 @@ namespace CompasAiCad
                     form.Location = new Point(Screen.PrimaryScreen.WorkingArea.Right - form.Width - 12, Screen.PrimaryScreen.WorkingArea.Top + 80);
                     return;
                 }
+
                 RECT r;
                 if (!GetWindowRect(hwnd, out r)) return;
-                int width = form.PreferredWidth;
-                int height = Math.Min(form.PreferredHeight, Math.Max(420, r.Bottom - r.Top - 40));
+
+                // Form is the actual WinForms type here; its dimensions are already initialized
+                // from PanelForm.PreferredWidth/PreferredHeight in the constructor/host setup.
+                int width = form.Width;
+                int height = Math.Min(form.Height, Math.Max(420, r.Bottom - r.Top - 40));
                 int x = r.Right - width - 8;
                 int y = r.Top + 48;
                 if (x < r.Left + 40) x = r.Left + 40;
+
                 form.StartPosition = FormStartPosition.Manual;
                 form.Size = new Size(width, height);
                 form.Location = new Point(x, y);
