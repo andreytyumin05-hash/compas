@@ -1,8 +1,8 @@
-"""Single source of truth for the generated CAD API.
+"""Single source of truth for generated CAD operations.
 
-The registry intentionally describes support status separately from Python
-method existence.  A method may exist as a compatibility shim but still be
-forbidden for generation when it does not create real geometry.
+Compatibility shims may exist on Part for API stability, but generation must only
+see operations that produce real KOMPAS geometry. Unsupported operations remain
+explicitly blocked instead of returning silent no-ops.
 """
 
 from __future__ import annotations
@@ -20,6 +20,7 @@ class OpSpec:
 
 OPS = {
     "create": OpSpec("create", "meta", "create one part"),
+    "from_active": OpSpec("from_active", "meta", "attach to active KOMPAS part"),
     "update": OpSpec("update", "meta", "rebuild/update model"),
     "sketch": OpSpec("sketch", "real", "create base-plane sketch"),
     "extrude": OpSpec("extrude", "real", "add material by extrusion"),
@@ -35,10 +36,10 @@ OPS = {
     "hex_boss": OpSpec("hex_boss", "real", "add hexagonal boss"),
     "pocket": OpSpec("pocket", "real", "remove cylindrical pocket"),
     "ring_groove": OpSpec("ring_groove", "real", "ring groove"),
-    "groove": OpSpec("groove", "real", "ring-groove alias"),
+    "groove": OpSpec("groove", "real", "ring-groove compatibility alias"),
     "keyway": OpSpec("keyway", "real", "keyway"),
     "slot": OpSpec("slot", "real", "slot"),
-    "step": OpSpec("step", "real", "step"),
+    "step": OpSpec("step", "real", "turned step helper"),
     "counterbore": OpSpec("counterbore", "real", "counterbore"),
     "countersink": OpSpec("countersink", "real", "countersink"),
     "fillet": OpSpec("fillet", "best_effort", "edge fillet"),
@@ -54,7 +55,12 @@ OPS = {
     "p": OpSpec("p", "meta", "evaluate named parameter"),
     "params_dict": OpSpec("params_dict", "meta", "evaluate parameters"),
     "param_graph": OpSpec("param_graph", "meta", "parameter dependency graph"),
-    "sketch_on_face": OpSpec("sketch_on_face", "unsupported", "real face selection not implemented"),
+    "var": OpSpec("var", "meta", "KOMPAS variable bridge"),
+    "set_properties": OpSpec("set_properties", "meta", "document properties"),
+    "get_context": OpSpec("get_context", "meta", "document context"),
+    "set_view": OpSpec("set_view", "meta", "view selection"),
+    "screenshot": OpSpec("screenshot", "meta", "visual verification screenshot"),
+    "sketch_on_face": OpSpec("sketch_on_face", "unsupported", "true face selection not implemented"),
     "shell": OpSpec("shell", "unsupported", "native shell not implemented"),
     "thread": OpSpec("thread", "unsupported", "native thread not implemented"),
     "sweep": OpSpec("sweep", "unsupported", "native sweep not implemented"),
