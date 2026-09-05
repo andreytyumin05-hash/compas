@@ -3,125 +3,105 @@ test_complex_cover_goes_to_llm (test_agent_templates.TryTemplateTest.test_comple
 test_ocr_complex_no_cylinder_template (test_agent_templates.TryTemplateTest.test_ocr_complex_no_cylinder_template) ... ok
 test_plug_steps_no_template (test_agent_templates.TryTemplateTest.test_plug_steps_no_template) ... ok
 test_simple_bushing (test_agent_templates.TryTemplateTest.test_simple_bushing) ... ok
-test_bad_rectangle_rejected (test_cover_features.CoverFeaturesTest.test_bad_rectangle_rejected) ... FAIL
-test_construction_in_spec (test_cover_features.CoverFeaturesTest.test_construction_in_spec) ... FAIL
-test_good_stadium_ok (test_cover_features.CoverFeaturesTest.test_good_stadium_ok) ... ok
-test_groove_required_when_feature_groove (test_feature_false_positives.FeatureFalsePositivesTest.test_groove_required_when_feature_groove) ... ok
-test_order_boilerplate_does_not_require_pocket (test_feature_false_positives.FeatureFalsePositivesTest.test_order_boilerplate_does_not_require_pocket) ... ok
-test_plug_good_code_ok (test_feature_false_positives.FeatureFalsePositivesTest.test_plug_good_code_ok) ... ok
+test_cover_features (unittest.loader._FailedTest.test_cover_features) ... ERROR
+test_feature_false_positives (unittest.loader._FailedTest.test_feature_false_positives) ... ERROR
 test_agent_falls_back_to_template_when_no_llm_keys_are_present (test_no_llm_fallback.NoLLMFallbackTest.test_agent_falls_back_to_template_when_no_llm_keys_are_present)
 Без ключей работает только шаблон простых деталей (втулка). ... ok
-test_bushing_ok (test_offline_dry_run.OfflineDryRunTest.test_bushing_ok) ... FAIL
-test_complex_task_no_box_template (test_offline_dry_run.OfflineDryRunTest.test_complex_task_no_box_template) ... ok
-test_plug_rectangle_rejected (test_offline_dry_run.OfflineDryRunTest.test_plug_rectangle_rejected) ... ok
-test_schema_build_plan_in_user_text (test_offline_dry_run.OfflineDryRunTest.test_schema_build_plan_in_user_text) ... FAIL
-test_simple_bushing_template (test_offline_dry_run.OfflineDryRunTest.test_simple_bushing_template) ... ok
-test_step_and_slot_are_allowed_methods (test_offline_dry_run.OfflineDryRunTest.test_step_and_slot_are_allowed_methods) ... ok
-test_unknown_method_flagged (test_offline_dry_run.OfflineDryRunTest.test_unknown_method_flagged) ... ok
-test_complex_feature_tree_is_explicit (test_schema_complex_spec.SpecToTaskTextComplexSpecTest.test_complex_feature_tree_is_explicit) ... FAIL
+test_offline_dry_run (unittest.loader._FailedTest.test_offline_dry_run) ... ERROR
+test_schema_complex_spec (unittest.loader._FailedTest.test_schema_complex_spec) ... ERROR
 test_full_cover_ok (test_task_feature_requirements.TaskFeatureRequirementsTest.test_full_cover_ok) ... ok
 test_missing_pocket_and_fillet (test_task_feature_requirements.TaskFeatureRequirementsTest.test_missing_pocket_and_fillet) ... ok
 test_slot_required (test_task_feature_requirements.TaskFeatureRequirementsTest.test_slot_required) ... ok
 test_vision_failure_message_prompts_for_text_input (test_vision_fallback.VisionFallbackTest.test_vision_failure_message_prompts_for_text_input) ... ok
-test_code_with_var_and_screenshot_valid (test_visual_and_vars.VisualAndVarsTest.test_code_with_var_and_screenshot_valid) ... ok
-test_critic_warns_without_var (test_visual_and_vars.VisualAndVarsTest.test_critic_warns_without_var) ... FAIL
-test_known_methods_include_fluent (test_visual_and_vars.VisualAndVarsTest.test_known_methods_include_fluent) ... ok
-test_screenshot_without_path_still_parses (test_visual_and_vars.VisualAndVarsTest.test_screenshot_without_path_still_parses) ... ok
-test_bushing_template_has_var_and_shot (test_visual_loop.VisualLoopTest.test_bushing_template_has_var_and_shot) ... FAIL
+test_code_with_param_ok (test_visual_and_vars.VisualAndVarsTest.test_code_with_param_ok) ... ok
+test_critic_warns_without_param (test_visual_and_vars.VisualAndVarsTest.test_critic_warns_without_param) ... oktest_screenshot_without_path_still_parses (test_visual_and_vars.VisualAndVarsTest.test_screenshot_without_path_still_parses) ... ok
+test_bushing_template_has_param_and_dim (test_visual_loop.VisualLoopTest.test_bushing_template_has_param_and_dim) ... ok
 test_ensure_skips_if_already_present (test_visual_loop.VisualLoopTest.test_ensure_skips_if_already_present) ... ok
 test_ensure_visual_tail_adds_screenshots (test_visual_loop.VisualLoopTest.test_ensure_visual_tail_adds_screenshots) ... ok
 test_parse_critic_json (test_visual_loop.VisualLoopTest.test_parse_critic_json) ... ok
 test_review_no_images_empty (test_visual_loop.VisualLoopTest.test_review_no_images_empty) ... ok
 
 ======================================================================
-FAIL: test_bad_rectangle_rejected (test_cover_features.CoverFeaturesTest.test_bad_rectangle_rejected)
+ERROR: test_cover_features (unittest.loader._FailedTest.test_cover_features)
 ----------------------------------------------------------------------
+ImportError: Failed to import test module: test_cover_features
 Traceback (most recent call last):
-  File "D:\учеба\ML_study\compas\tests\test_cover_features.py", line 24, in test_bad_rectangle_rejected
-    self.assertTrue(miss)
-    ~~~~~~~~~~~~~~~^^^^^^
-AssertionError: [] is not true
+  File "C:\Users\anry2\AppData\Local\Programs\Python\Python314\Lib\unittest\loader.py", line 426, in _find_test_path
+    module = self._get_module_from_name(name)
+  File "C:\Users\anry2\AppData\Local\Programs\Python\Python314\Lib\unittest\loader.py", line 367, in _get_module_from_name
+    __import__(name)
+    ~~~~~~~~~~^^^^^^
+  File "D:\учеба\ML_study\compas\tests\test_cover_features.py", line 6, in <module>
+    from agent.schema import spec_to_task_text
+  File "D:\учеба\ML_study\compas\agent\schema.py", line 61
+    r"(feature=fillet[^
+    ^
+SyntaxError: unterminated string literal (detected at line 61)
+
 
 ======================================================================
-FAIL: test_construction_in_spec (test_cover_features.CoverFeaturesTest.test_construction_in_spec)
+ERROR: test_feature_false_positives (unittest.loader._FailedTest.test_feature_false_positives)
 ----------------------------------------------------------------------
+ImportError: Failed to import test module: test_feature_false_positives
 Traceback (most recent call last):
-  File "D:\учеба\ML_study\compas\tests\test_cover_features.py", line 64, in test_construction_in_spec
-    self.assertIn("feature_order=base->boss->fillet", text)
-    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-AssertionError: 'feature_order=base->boss->fillet' not found in 'CAD_CONTRACT v3\npart_type=cover\nname=Крышка\nunits=mm\naxis=Z\nRULE: solid_lines=body; dashed/hidden/centerlines are not outer solid geometry\nRULE: preserve every measured feature; do not invent missing dimensions\nRULE: important dimensions should be named parameters; derived positions should use parameter expressions\n\nPARAMETERS:\n(none explicitly named; generator should create names for critical dimensions)\n\nOVERALL:\nBUILD_PLAN:\nS01: type=fillet | radius=2\nFEATURES:\nF01: feature=fillet | radius=2'
+  File "C:\Users\anry2\AppData\Local\Programs\Python\Python314\Lib\unittest\loader.py", line 426, in _find_test_path
+    module = self._get_module_from_name(name)
+  File "C:\Users\anry2\AppData\Local\Programs\Python\Python314\Lib\unittest\loader.py", line 367, in _get_module_from_name
+    __import__(name)
+    ~~~~~~~~~~^^^^^^
+  File "D:\учеба\ML_study\compas\tests\test_feature_false_positives.py", line 6, in <module>
+    from agent.schema import spec_to_task_text
+  File "D:\учеба\ML_study\compas\agent\schema.py", line 61
+    r"(feature=fillet[^
+    ^
+SyntaxError: unterminated string literal (detected at line 61)
+
 
 ======================================================================
-FAIL: test_bushing_ok (test_offline_dry_run.OfflineDryRunTest.test_bushing_ok)
+ERROR: test_offline_dry_run (unittest.loader._FailedTest.test_offline_dry_run)
 ----------------------------------------------------------------------
+ImportError: Failed to import test module: test_offline_dry_run
 Traceback (most recent call last):
-  File "D:\учеба\ML_study\compas\tests\test_offline_dry_run.py", line 25, in test_bushing_ok
-    self.assertTrue(r["ok"], r["issues"])
-    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
-AssertionError: False is not true : ['критические размеры не вынесены в part.param()']
+  File "C:\Users\anry2\AppData\Local\Programs\Python\Python314\Lib\unittest\loader.py", line 426, in _find_test_path
+    module = self._get_module_from_name(name)
+  File "C:\Users\anry2\AppData\Local\Programs\Python\Python314\Lib\unittest\loader.py", line 367, in _get_module_from_name
+    __import__(name)
+    ~~~~~~~~~~^^^^^^
+  File "D:\учеба\ML_study\compas\tests\test_offline_dry_run.py", line 9, in <module>
+    from agent.schema import format_spec_for_user, spec_to_task_text
+  File "D:\учеба\ML_study\compas\agent\schema.py", line 61
+    r"(feature=fillet[^
+    ^
+SyntaxError: unterminated string literal (detected at line 61)
+
 
 ======================================================================
-FAIL: test_schema_build_plan_in_user_text (test_offline_dry_run.OfflineDryRunTest.test_schema_build_plan_in_user_text)
+ERROR: test_schema_complex_spec (unittest.loader._FailedTest.test_schema_complex_spec)
 ----------------------------------------------------------------------
+ImportError: Failed to import test module: test_schema_complex_spec
 Traceback (most recent call last):
-  File "D:\учеба\ML_study\compas\tests\test_offline_dry_run.py", line 98, in test_schema_build_plan_in_user_text
-    self.assertIn("drawing_dashed_lines", task)
-    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-AssertionError: 'drawing_dashed_lines' not found in 'CAD_CONTRACT v3\npart_type=plug\nname=Пробка\nunits=mm\naxis=Z\nRULE: solid_lines=body; dashed/hidden/centerlines are not outer solid geometry\nRULE: preserve every measured feature; do not invent missing dimensions\nRULE: important dimensions should be named parameters; derived positions should use parameter expressions\n\nPARAMETERS:\n(none explicitly named; generator should create names for critical dimensions)\n\nOVERALL:\nouter_diameter=50\nBUILD_PLAN:\nS01: 1. База Ø50\nS02: 2. Ступень Ø30\nFEATURES:\nF01: feature=step | diameter=50, length=10 | note=голова\nbody_style=cylindrical_steps\nforbid=rectangle_as_main_body'
+  File "C:\Users\anry2\AppData\Local\Programs\Python\Python314\Lib\unittest\loader.py", line 426, in _find_test_path
+    module = self._get_module_from_name(name)
+  File "C:\Users\anry2\AppData\Local\Programs\Python\Python314\Lib\unittest\loader.py", line 367, in _get_module_from_name
+    __import__(name)
+    ~~~~~~~~~~^^^^^^
+  File "D:\учеба\ML_study\compas\tests\test_schema_complex_spec.py", line 3, in <module>
+    from agent.schema import spec_to_task_text
+  File "D:\учеба\ML_study\compas\agent\schema.py", line 61
+    r"(feature=fillet[^
+    ^
+SyntaxError: unterminated string literal (detected at line 61)
 
-======================================================================
-FAIL: test_complex_feature_tree_is_explicit (test_schema_complex_spec.SpecToTaskTextComplexSpecTest.test_complex_feature_tree_is_explicit)
+
 ----------------------------------------------------------------------
+Ran 21 tests in 0.006s
+
+
+(venv) PS D:\учеба\ML_study\compas> python scripts\smoke_dims.py
 Traceback (most recent call last):
-  File "D:\учеба\ML_study\compas\tests\test_schema_complex_spec.py", line 50, in test_complex_feature_tree_is_explicit
-    self.assertIn("feature_order=base->boss->pocket->pattern_holes->fillet", text)
-    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-AssertionError: 'feature_order=base->boss->pocket->pattern_holes->fillet' not found in 'CAD_CONTRACT v3\npart_type=cover\nname=Крышка\nunits=mm\naxis=Z\nRULE: solid_lines=body; dashed/hidden/centerlines are not outer solid geometry\nRULE: preserve every measured feature; do not invent missing dimensions\nRULE: important dimensions should be named parameters; derived positions should use parameter expressions\n\nPARAMETERS:\n(none explicitly named; generator should create names for critical dimensions)\n\nOVERALL:\nlength=116\nwidth=80\nthickness=13\nBUILD_PLAN:\nS01: type=extrude_body | shape=stadium, length=116, width=80, thickness=13\nS02: type=boss | shape=circle, diameter=60, boss_height=18\nS03: type=pocket | shape=circle, diameter=50, depth=8\nS04: type=pattern_holes | pcd=60, count=4, diameter=8\nS05: type=fillet | radius=2\nFEATURES:\nF01: feature=extrude_body | shape=stadium, length=116, width=80, thickness=13 | note=base body\nF02: feature=boss | shape=circle, diameter=60, boss_height=18 | note=center boss\nF03: feature=pocket | shape=circle, diameter=50, depth=8 | note=blind pocket\nF04: feature=pattern_holes | pcd=60, count=4, diameter=8 | note=4 holes\nF05: feature=fillet | radius=2 | note=edge blend'
-
-======================================================================
-FAIL: test_critic_warns_without_var (test_visual_and_vars.VisualAndVarsTest.test_critic_warns_without_var)
-----------------------------------------------------------------------
-Traceback (most recent call last):
-  File "D:\учеба\ML_study\compas\tests\test_visual_and_vars.py", line 42, in test_critic_warns_without_var
-    self.assertTrue(any("var" in x for x in w), w)
-    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-AssertionError: False is not true : ['важные размеры не вынесены в part.param()']
-
-======================================================================
-FAIL: test_bushing_template_has_var_and_shot (test_visual_loop.VisualLoopTest.test_bushing_template_has_var_and_shot)
-----------------------------------------------------------------------
-Traceback (most recent call last):
-  File "D:\учеба\ML_study\compas\tests\test_visual_loop.py", line 47, in test_bushing_template_has_var_and_shot    self.assertIn("part.var", code)
-    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^
-AssertionError: 'part.var' not found in 'from core import Part\n\nD_OUT = 40\nD_IN = 20\nL = 50\n\npart = Part.create("Втулка")\nwith part.sketch("xy") as sk:\n    sk.circle(0, 0, D_OUT / 2)\n    sk.dim_radial(0, 0, D_OUT / 2)\npart.extrude(sk, depth=L)\npart.hole(0, 0, diameter=D_IN, through_all=True)\npart.update()\n'
-
-----------------------------------------------------------------------
-Ran 32 tests in 0.015s
-
-FAILED (failures=7)
-
-(venv) PS D:\учеба\ML_study\compas> python
->> part = Part.create("DimSmoke")
->> with part.sketch("xy") as sk:
->>     sk.line(0, 0, 50, 0)
->>     ok = sk.dim_linear(0, 0, 50, 0)
->>     sk.circle(0, 0, 20)
->>     ok2 = sk.dim_radial(0, 0, 20)
->> print(ok, ok2)
->> part.update()
-строка:2 знак:1
-+ from core import Part
-+ ~~~~
-Ключевое слово "from" не поддерживается в этой версии языка.
-строка:9 знак:9
-+ print(ok, ok2)
-+         ~
-Отсутствует аргумент в списке параметров.
-строка:10 знак:13
-+ part.update()
-+             ~
-После ''('' ожидалось выражение.
-    + CategoryInfo          : ParserError: (:) [], ParentContainsErrorRecordException
-    + FullyQualifiedErrorId : ReservedKeywordNotAllowed
-
-в питоне ничего не получилось 
+  File "D:\учеба\ML_study\compas\scripts\smoke_dims.py", line 24, in <module>
+    raise SystemExit(main())
+                     ~~~~^^
+  File "D:\учеба\ML_study\compas\scripts\smoke_dims.py", line 9, in main
+    from core import Part
+ModuleNotFoundError: No module named 'core'
