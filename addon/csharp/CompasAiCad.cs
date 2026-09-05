@@ -1,10 +1,10 @@
 using System;
 using System.Diagnostics;
 using System.IO;
-using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 
 namespace CompasAiCad
@@ -18,7 +18,6 @@ namespace CompasAiCad
         private static readonly object Sync = new object();
         private static PanelForm _form;
         private static Thread _uiThread;
-        private static IntPtr _kompasHandle;
 
         [return: MarshalAs(UnmanagedType.BStr)]
         public string GetLibraryName() => "CompasAiCad";
@@ -53,16 +52,11 @@ namespace CompasAiCad
 
             try
             {
-                // The AddIn is executed inside the KOMPAS process. Getting the
-                // main window from the current process avoids invoking the API7
-                // IApplication COM object and therefore avoids an unnecessary
-                // type-library lookup that can produce 0x80029C4A.
                 long handle = Process.GetCurrentProcess().MainWindowHandle.ToInt64();
                 if (handle == 0)
                     throw new InvalidOperationException("Не удалось получить главное окно КОМПАС-3D.");
 
-                _kompasHandle = new IntPtr(handle);
-                ShowPanel(_kompasHandle);
+                ShowPanel(new IntPtr(handle));
             }
             catch (Exception ex)
             {
@@ -80,7 +74,10 @@ namespace CompasAiCad
             {
                 if (_form == null || _form.IsDisposed)
                     return;
-                try { _form.BeginInvoke((Action)(() => _form.Close())); }
+                try
+                {
+                    _form.BeginInvoke((Action)(() => _form.Hide()));
+                }
                 catch { }
             }
         }
@@ -151,18 +148,23 @@ namespace CompasAiCad
             [StructLayout(LayoutKind.Sequential)]
             private struct RECT { public int Left, Top, Right, Bottom; }
 
-            private readonly IntPtr _parent;
             private readonly TextBox _task;
             private readonly TextBox _log;
             private readonly Label _status;
-            private readonly System.Windows.Forms.Timer _layoutTimer;
+            private readonly Button _create;
+            private readonly Button _edit;
+            private readonly Button _save;
+            private readonly IntPtr _parent;
+            private int _lastWidth = -1;
+            private int _lastHeight = -1;
+            private bool _running;
 
             public PanelForm(IntPtr parent)
             {
                 _parent = parent;
                 Text = "AI CAD";
-                Width = 390;
-                Height = 700;
+                Width = 360;
+                Height = 680;
                 FormBorderStyle = FormBorderStyle.None;
                 ShowInTaskbar = false;
                 StartPosition = FormStartPosition.Manual;
@@ -170,21 +172,42 @@ namespace CompasAiCad
                 MaximizeBox = false;
                 BackColor = System.Drawing.SystemColors.Control;
 
+                var header = new Panel
+                {
+                    Dock = DockStyle.Top,
+                    Height = 42,
+                    Padding = new Padding(10, 6, 8, 6)
+                };
+
                 var title = new Label
                 {
                     Text = "AI CAD",
-                    Dock = DockStyle.Top,
-                    Height = 38,
-                    Font = new System.Drawing.Font("Segoe UI", 13F, System.Drawing.FontStyle.Bold),
-                    Padding = new Padding(12, 8, 8, 4)
+                    Dock = DockStyle.Fill,
+                    Font = new System.Drawing.Font("Segoe UI", 12F, System.Drawing.FontStyle.Bold),
+                    TextAlign = System.Drawing.ContentAlignment.MiddleLeft
                 };
+
+                var close = new Button
+                {
+                    Text = "×",
+                    Dock = DockStyle.Right,
+                    Width = 32,
+                    FlatStyle = FlatStyle.Flat,
+                    Font = new System.Drawing.Font("Segoe UI", 13F),
+                    TabStop = false
+                };
+                close.FlatAppearance.BorderSize = 0;
+                close.Click += (s, e) => HidePanel();
+
+                header.Controls.Add(title);
+                header.Controls.Add(close);
 
                 var hint = new Label
                 {
-                    Text = "Описание детали / команда изменения:",
+                    Text = "Описание детали или команда изменения",
                     Dock = DockStyle.Top,
                     Height = 30,
-                    Padding = new Padding(12, 6, 8, 0)
+                    Padding = new Padding(10, 5, 8, 0)
                 };
 
                 _task = new TextBox
@@ -193,34 +216,35 @@ namespace CompasAiCad
                     ScrollBars = ScrollBars.Vertical,
                     Dock = DockStyle.Top,
                     Height = 150,
-                    Margin = new Padding(12),
-                    Font = new System.Drawing.Font("Segoe UI", 10F)
+                    Font = new System.Drawing.Font("Segoe UI", 10F),
+                    Margin = new Padding(10),
+                    AcceptsReturn = true
                 };
 
                 var buttons = new FlowLayoutPanel
                 {
                     Dock = DockStyle.Top,
-                    Height = 42,
-                    Padding = new Padding(8, 4, 8, 4),
+                    Height = 46,
+                    Padding = new Padding(8, 5, 8, 5),
                     WrapContents = false
                 };
 
-                var create = new Button { Text = "Создать", AutoSize = true };
-                var edit = new Button { Text = "Изменить последнюю", AutoSize = true };
-                var save = new Button { Text = "Сохранить M3D", AutoSize = true };
-                create.Click += (s, e) => Run("create");
-                edit.Click += (s, e) => Run("edit");
-                save.Click += (s, e) => Run("save");
-                buttons.Controls.Add(create);
-                buttons.Controls.Add(edit);
-                buttons.Controls.Add(save);
+                _create = new Button { Text = "Создать", AutoSize = true };
+                _edit = new Button { Text = "Изменить последнюю", AutoSize = true };
+                _save = new Button { Text = "Сохранить M3D", AutoSize = true };
+                _create.Click += async (s, e) => await RunAsync("create");
+                _edit.Click += async (s, e) => await RunAsync("edit");
+                _save.Click += async (s, e) => await RunAsync("save");
+                buttons.Controls.Add(_create);
+                buttons.Controls.Add(_edit);
+                buttons.Controls.Add(_save);
 
                 _status = new Label
                 {
                     Text = "Готово",
                     Dock = DockStyle.Top,
-                    Height = 26,
-                    Padding = new Padding(12, 4, 8, 0)
+                    Height = 28,
+                    Padding = new Padding(10, 5, 8, 0)
                 };
 
                 _log = new TextBox
@@ -237,16 +261,15 @@ namespace CompasAiCad
                 Controls.Add(buttons);
                 Controls.Add(_task);
                 Controls.Add(hint);
-                Controls.Add(title);
+                Controls.Add(header);
 
                 Shown += (s, e) => AttachAndLayout();
-                _layoutTimer = new System.Windows.Forms.Timer { Interval = 500 };
-                _layoutTimer.Tick += (s, e) => AttachAndLayout();
-                _layoutTimer.Start();
             }
 
             public void SetParentWindow(IntPtr parent)
             {
+                if (parent == IntPtr.Zero)
+                    return;
                 SetParent(Handle, parent);
                 AttachAndLayout();
             }
@@ -260,60 +283,54 @@ namespace CompasAiCad
                     SetParent(Handle, _parent);
 
                 int style = GetWindowLong(Handle, GWL_STYLE);
-                SetWindowLong(Handle, GWL_STYLE, style | WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN);
+                int desired = style | WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN;
+                if (style != desired)
+                    SetWindowLong(Handle, GWL_STYLE, desired);
 
                 if (!GetClientRect(_parent, out RECT r))
                     return;
 
-                int width = Math.Min(400, Math.Max(320, r.Right / 4));
+                int width = Math.Min(360, Math.Max(320, r.Right / 5));
                 int height = Math.Max(240, r.Bottom);
+                if (width == _lastWidth && height == _lastHeight)
+                    return;
+
+                _lastWidth = width;
+                _lastHeight = height;
                 SetWindowPos(Handle, IntPtr.Zero, r.Right - width, 0, width, height,
                     SWP_NOACTIVATE | SWP_SHOWWINDOW);
             }
 
-            private void Run(string action)
+            private async Task RunAsync(string action)
             {
+                if (_running)
+                    return;
+
                 if (action != "save" && string.IsNullOrWhiteSpace(_task.Text))
                 {
                     Append("Введите описание детали.");
                     return;
                 }
 
+                _running = true;
+                SetButtons(false);
                 _status.Text = action == "save" ? "Сохранение…" : "Построение…";
                 Append($"> {action}");
 
                 string repo = FindRepo();
-                string python = Environment.GetEnvironmentVariable("COMPAS_PYTHON");
-                if (string.IsNullOrWhiteSpace(python)) python = "python.exe";
-
+                string python = FindPython(repo);
                 string taskFile = Path.Combine(Path.GetTempPath(), "compas_ai_cad_" + Guid.NewGuid().ToString("N") + ".txt");
+
                 try
                 {
-                    if (action != "save") File.WriteAllText(taskFile, _task.Text, new UTF8Encoding(false));
+                    if (action != "save")
+                        File.WriteAllText(taskFile, _task.Text, new UTF8Encoding(false));
 
-                    var psi = new ProcessStartInfo
-                    {
-                        FileName = python,
-                        WorkingDirectory = repo,
-                        UseShellExecute = false,
-                        CreateNoWindow = true,
-                        RedirectStandardOutput = true,
-                        RedirectStandardError = true,
-                        Arguments = action == "save"
-                            ? "-m addon.bridge save"
-                            : $"-m addon.bridge {action} --task-file \"{taskFile}\""
-                    };
-
-                    psi.EnvironmentVariables["COMPAS_REPO"] = repo;
-                    using (var p = Process.Start(psi))
-                    {
-                        string stdout = p.StandardOutput.ReadToEnd();
-                        string stderr = p.StandardError.ReadToEnd();
-                        p.WaitForExit();
-                        Append(stdout.Trim());
-                        if (!string.IsNullOrWhiteSpace(stderr)) Append(stderr.Trim());
-                        _status.Text = p.ExitCode == 0 ? "Готово" : "Ошибка";
-                    }
+                    var result = await Task.Run(() => ExecutePython(repo, python, action, taskFile));
+                    Append(result.Output);
+                    if (!string.IsNullOrWhiteSpace(result.Error))
+                        Append(result.Error);
+                    _status.Text = result.ExitCode == 0 ? "Готово" : "Ошибка";
                 }
                 catch (Exception ex)
                 {
@@ -323,7 +340,69 @@ namespace CompasAiCad
                 finally
                 {
                     try { if (File.Exists(taskFile)) File.Delete(taskFile); } catch { }
+                    _running = false;
+                    SetButtons(true);
                 }
+            }
+
+            private static ProcessResult ExecutePython(string repo, string python, string action, string taskFile)
+            {
+                string args = action == "save"
+                    ? "-m addon.bridge save"
+                    : $"-m addon.bridge {action} --task-file \"{taskFile}\"";
+
+                var psi = new ProcessStartInfo
+                {
+                    FileName = python,
+                    WorkingDirectory = repo,
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    Arguments = args
+                };
+                psi.EnvironmentVariables["COMPAS_REPO"] = repo;
+
+                using (var p = Process.Start(psi))
+                {
+                    string stdout = p.StandardOutput.ReadToEnd();
+                    string stderr = p.StandardError.ReadToEnd();
+                    p.WaitForExit();
+                    return new ProcessResult(p.ExitCode, stdout.Trim(), stderr.Trim());
+                }
+            }
+
+            private void SetButtons(bool enabled)
+            {
+                if (IsDisposed)
+                    return;
+                _create.Enabled = enabled;
+                _edit.Enabled = enabled;
+                _save.Enabled = enabled;
+            }
+
+            private void HidePanel()
+            {
+                Visible = false;
+                _status.Text = "Готово";
+            }
+
+            private static string FindPython(string repo)
+            {
+                string[] candidates =
+                {
+                    Path.Combine(repo, "venv", "Scripts", "python.exe"),
+                    Environment.GetEnvironmentVariable("COMPAS_PYTHON"),
+                    "python.exe"
+                };
+
+                foreach (string item in candidates)
+                {
+                    if (!string.IsNullOrWhiteSpace(item) && File.Exists(item))
+                        return item;
+                }
+
+                return "python.exe";
             }
 
             private static string FindRepo()
@@ -345,11 +424,26 @@ namespace CompasAiCad
 
             private void Append(string text)
             {
-                if (string.IsNullOrWhiteSpace(text)) return;
+                if (string.IsNullOrWhiteSpace(text) || IsDisposed)
+                    return;
                 _log.AppendText(text + Environment.NewLine);
                 _log.SelectionStart = _log.TextLength;
                 _log.ScrollToCaret();
             }
+        }
+
+        private readonly struct ProcessResult
+        {
+            public ProcessResult(int exitCode, string output, string error)
+            {
+                ExitCode = exitCode;
+                Output = output;
+                Error = error;
+            }
+
+            public int ExitCode { get; }
+            public string Output { get; }
+            public string Error { get; }
         }
     }
 }
