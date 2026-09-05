@@ -25,10 +25,14 @@ class Agent:
         return self._llm
 
     def generate_checked(
-        self, task: str, temperature: float = 0.1, max_retries: int = 3
+        self,
+        task: str,
+        temperature: float = 0.1,
+        max_retries: int = 3,
+        context: str = "",
     ) -> Tuple[str, List[str]]:
         contract = task.strip()
-        template = try_template(contract)
+        template = try_template(contract) if not context else None
         if template:
             code = normalize_code(template)
             ok, errors = self._validate_all(contract, code)
@@ -38,18 +42,18 @@ class Agent:
         code = ""
         errors: List[str] = ["empty code"]
         last_raw = ""
-        system_prompt = get_system_prompt(contract)
+        system_prompt = get_system_prompt(contract, extra_context=context)
 
         for attempt in range(max_retries + 1):
             if attempt == 0:
                 messages = [
                     {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": build_user_prompt(contract)},
+                    {"role": "user", "content": build_user_prompt(contract, extra_context=context)},
                 ]
             else:
                 messages = [
                     {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": build_repair_prompt(contract, code, errors)},
+                    {"role": "user", "content": build_repair_prompt(contract, code, errors, extra_context=context)},
                 ]
             try:
                 last_raw = self.llm.chat(messages, temperature=temperature)
@@ -120,27 +124,3 @@ class Agent:
                 return code
 
         return ""
-
-
-def main() -> None:
-    import sys
-    from rich.console import Console
-    from rich.syntax import Syntax
-
-    console = Console()
-    if len(sys.argv) < 2:
-        console.print('[yellow]python -m agent.runner "description"[/]')
-        raise SystemExit(1)
-    task = " ".join(sys.argv[1:])
-    code, errors = Agent().generate_checked(task)
-    if code:
-        console.print(Syntax(code, "python", theme="monokai", line_numbers=True))
-    if errors:
-        for error in errors:
-            console.print(f"[red]• {error}[/]")
-        raise SystemExit(2)
-    console.print("[green]OK[/]")
-
-
-if __name__ == "__main__":
-    main()
