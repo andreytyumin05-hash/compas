@@ -1,6 +1,4 @@
-"""
-Telegram bot: drawing/text -> canonical CAD contract -> builder.
-"""
+"""Telegram bot: drawing/text -> canonical CAD contract -> builder."""
 
 from __future__ import annotations
 
@@ -44,7 +42,7 @@ def _looks_like_part_task(text: str) -> bool:
     keys = (
         "втулк", "фланец", "плит", "вал", "отверст", "цилиндр", "куб",
         "детал", "диаметр", "толщин", "длин", "крышк", "бобыш", "канавк",
-        "карман", "фаск", "скругл", "штуцер", "пробк", "паз",
+        "карман", "фаск", "скругл", "штуцер", "пробк", "паз", "лопаст",
     )
     low = t.lower()
     return any(k in low for k in keys)
@@ -69,6 +67,7 @@ def main() -> None:
     from bot.queue import build_queue, Job
     from bot.sessions import session_workspace
     from core.export import session_dir, safe_delete_path
+    from core.model_store import store_latest_model, latest_model_path
 
     async def worker(job: Job) -> None:
         def _build() -> str:
@@ -146,25 +145,28 @@ def main() -> None:
             pass
         await _enqueue_build(update, context, task, reply_to=q.message)
 
-    async def _send_exports(msg, uid: int) -> None:
+    async def _send_exports(msg, uid: int, task: str, code: str) -> None:
         out_dir = session_dir(str(uid))
         try:
             def _exp():
                 from core import Part
                 p = Part.from_active()
-                return p.export_formats(out_dir, formats=["m3d", "step"], close=True)
-            paths = await asyncio.to_thread(_exp)
-            for path in paths:
-                try:
-                    with open(path, "rb") as f:
-                        await msg.reply_document(document=f, filename=path.name)
-                except Exception:
-                    log.exception("send file")
-                    await msg.reply_text(f"Файл {path.name} не отправился.")
+                # Native KOMPAS M3D is the only file sent by the bot.
+                return p.export(out_dir / "part.m3d", fmt="m3d")
+            path = await asyncio.to_thread(_exp)
+            latest = await asyncio.to_thread(store_latest_model, path, task=task, code=code)
+            try:
+                with open(latest, "rb") as f:
+                    await msg.reply_document(document=f, filename="latest_model.m3d")
+            except Exception:
+                log.exception("send m3d")
+                await msg.reply_text("Модель создана, но файл M3D не удалось отправить.")
         except Exception:
-            log.exception("export")
-            await msg.reply_text("Модель создана, но экспорт не удалось отправить.")
+            log.exception("export m3d")
+            await msg.reply_text("Модель создана, но экспорт M3D не удалось выполнить.")
         finally:
+            # Session workspace is disposable; the single latest M3D remains in
+            # .compas_tmp/latest_model.m3d for a follow-up edit/context.
             safe_delete_path(out_dir)
 
     async def _enqueue_build(update, context, task: str, reply_to=None) -> None:
@@ -181,7 +183,7 @@ def main() -> None:
             n_lines = code.count("\n") + 1 if code else 0
             await msg.reply_text(f"Готово. Модель построена в КОМПАС.\nСкрипт: ~{n_lines} строк.")
             log.info("build ok user=%s code_lines=%s", uid, n_lines)
-            await _send_exports(msg, uid)
+            await _send_exports(msg, uid, task, code)
         except Exception as exc:
             log.exception("build fail")
             brief = str(exc)
