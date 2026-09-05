@@ -21,7 +21,7 @@ with part.sketch("xy") as sk:
     sk.stadium(x, y, length, width)
     sk.polygon([(x1,y1), (x2,y2), ...], closed=True)
     sk.line(x1,y1,x2,y2)
-    sk.axis_line(x1,y1,x2,y2)  # construction/rotation axis for revolve profile
+    sk.axis_line(x1,y1,x2,y2)
     sk.arc(x1,y1,x2,y2,x3,y3)
     sk.slot(x1,y1,x2,y2,width)
     sk.spline([(x1,y1), (x2,y2), (x3,y3), ...], closed=False, smooth=True)
@@ -58,77 +58,73 @@ _RULES = '''
 ## Hard rules
 1. Output exactly one Python fenced block. No prose inside the block.
 2. Start with `from core import Part` and finish with `part.update()`.
-3. Treat the CAD_CONTRACT as authoritative. Preserve every explicit feature, dimension and dependency.
+3. Treat the CAD_CONTRACT and ENGINEERING CONTEXT as inputs, but never fabricate missing dimensions or standard values.
 4. Build in dependency order: base -> added material -> cuts -> patterns -> finishing -> update.
 5. Every requested feature must map to a real supported core operation. Never silently omit a feature.
-6. For a turned/axisymmetric part (shaft, axle, spindle, plug, fitting, turned bushing/body), PREFER ONE longitudinal half-profile + `part.revolve(...)` over a stack of independent circles/extrudes.
-7. A revolved profile must contain an explicit `sk.axis_line(...)` construction line along the intended rotation axis. Keep the material profile on one side of that axis and make the contour closed against the axis where required.
-8. Use separate additive extrusions only when the contract clearly requires non-axisymmetric material or when a revolved profile would be geometrically invalid.
+6. For a turned/axisymmetric part (shaft, axle, spindle, plug, fitting, turned bushing/body), use ONE longitudinal half-profile + `part.revolve(...)` rather than a stack of independent circles/extrudes.
+7. A revolved profile must contain an explicit `sk.axis_line(...)` construction line along the intended rotation axis.
+8. Use separate additive extrusions only for genuinely non-axisymmetric material.
 9. Repeated holes use pattern operations whenever they share diameter/placement logic.
-10. For a through hole/cut use `through_all=True`. Do NOT use `both_directions=True` as a synonym for through-all.
-11. A dashed/hidden/center line is reference information, never outer solid geometry.
-12. Never invent a missing dimension. Preserve unknown dimensions as unknown and do not guess.
+10. Through holes/cuts MUST use `through_all=True`. Do not substitute `DT_BOTH` semantics.
+11. Dashed/hidden/center lines are reference information, never outer solid geometry.
+12. Never invent an unreadable drawing dimension.
 13. Never call win32com/Dispatch/GetActiveObject/loft/sweep from generated code.
-14. shell, thread and sketch_on_face are unsupported in the current core and MUST NOT be generated.
-15. Important dimensions must be named with `part.param(name, ...)` and geometry should use `part.p(name)` rather than duplicated literals.
-16. Derived positions must be expressed from parameters when a mechanical relation is stated. Example: `part.param("HOLE_X", expr="W/2")`.
-17. Do not use a polyline as a substitute for a spline. `sk.spline`/`sk.bezier` must remain a real Bezier operation.
-18. Put dimension calls close to the geometry they describe. Use diameter dimensions for circles and linear dimensions for lengths/offsets.
-19. Dimension/constraint creation may be best-effort until the exact local API is confirmed, but never replace a requested dimension with a comment pretending that a dimension exists.
-20. A sketch should be deliberately constrained: origin/axis placement, symmetry, tangency, coincidence and key dimensions where applicable. Avoid a cloud of arbitrary absolute coordinates.
-21. If the user asks to edit an existing model, preserve the existing design intent and parameter names whenever they are available in the latest model context.
+14. shell, thread and sketch_on_face are unsupported and MUST NOT be generated.
+15. Important dimensions must be named with `part.param(...)`; derived positions must use `part.p(...)`.
+16. Do not use a polyline as a spline substitute. `sk.spline`/`sk.bezier` must remain real spline geometry.
+17. Put visible dimension calls near the geometry they describe.
+18. Engineering calculations are preliminary unless the supplied calculation context explicitly provides a validated method and assumptions. Never present an estimate as a certified design decision.
+19. If a standard/GOST result is supplied, use only dimensions actually supported by the research context. Preserve the standard identifier/source in comments only when useful for traceability.
+20. For an edit request, the latest model script/tree/context is the current design. Preserve everything not explicitly changed.
+21. An edit request returns a COMPLETE replacement script, not a patch fragment.
 '''
 
 _ORDER = '''
 ## Geometry strategy
-- First determine the design intent: body type, primary axis, sections, cuts, and edge finishing.
-- For axisymmetric turned parts, default to: longitudinal half-profile sketch -> axis_line -> revolve 360° -> cuts -> grooves/holes -> edge finishing.
-- For a stepped shaft, prefer one closed profile describing all diameters, shoulders and axial lengths, then one base revolve. Do not create four unrelated cylinders merely because there are four diameters.
-- For a curved blade-like profile, build a real closed sketch from spline/arc/line segments and keep control points parameter-driven. Do not approximate a spline with many line segments.
+- Determine design intent before coding: body type, main axis, sections, cuts, standards, relations.
+- Axisymmetric turned parts: longitudinal half-profile -> axis_line -> revolve 360° -> cuts/grooves/holes -> finishing.
+- Stepped shafts use one coherent profile whenever possible; do not create unrelated cylinders for sections that belong to one turned body.
+- Curved blades use real spline/Bezier profiles with parameterized control points.
 - Use cuts for holes, pockets, slots, grooves, counterbores and countersinks.
-- Apply fillets/chamfers only after the target edges exist.
-- Reuse named parameters across features. Do not duplicate the same dimension as separate magic numbers.
-- When the contract states a relation such as `hole_offset = width/2`, encode the expression explicitly.
-- Keep the feature tree coherent and editable; avoid unrelated temporary bodies.
+- Reuse named parameters. Never duplicate critical dimensions as magic numbers.
+- Preserve stated mechanical relations as expressions.
 '''
 
 
-def get_system_prompt(task: str = "") -> str:
+def get_system_prompt(task: str = "", *, extra_context: str = "") -> str:
     mem = few_shot_from_memory(task) if task else ""
     edit = latest_edit_context(task) if task else ""
     return (
-        "You are a CAD automation engineer for KOMPAS-3D v23. "
-        "Generate an editable, deterministic parametric model from the supplied CAD contract. "
-        "The goal is engineering intent, not merely a visually plausible solid.\n\n"
-        + _API
-        + _RULES
-        + _ORDER
-        + (("\n## Relevant memory examples\n" + mem + "\n") if mem else "")
-        + (("\n## Latest model context for an edit request\n" + edit + "\n") if edit else "")
-        + "\n## Reference patterns\n"
-        + load_patterns()
+        "You are a CAD automation engineer for KOMPAS-3D v23. Generate an editable engineering model, not a merely plausible shape.\n\n"
+        + _API + _RULES + _ORDER
+        + (("\n## Latest model context\n" + edit + "\n") if edit else "")
+        + (("\n## Engineering calculations / standards research\n" + extra_context[:9000] + "\n") if extra_context else "")
+        + (("\n## Relevant latest-model example\n" + mem + "\n") if mem else "")
+        + "\n## Reference patterns\n" + load_patterns()
     )
 
 
-def build_user_prompt(task: str) -> str:
-    return (
+def build_user_prompt(task: str, *, extra_context: str = "") -> str:
+    prompt = (
         "Generate the complete KOMPAS core script from this CAD_CONTRACT. "
-        "First derive the feature dependency order and parameter relations mentally; output only the final code. "
-        "Use named parameters for all critical dimensions and expressions for stated relationships. "
-        "For rotationally symmetric shafts/fittings/plugs, use one longitudinal half-profile, add an explicit sketch axis line, and revolve 360 degrees.\n\n"
-        + task.strip()
+        "For edits, use the latest model context as the current design and modify only the requested delta. "
+        "Return only the final code.\n\n" + task.strip()
     )
+    if extra_context:
+        prompt += "\n\nENGINEERING CONTEXT (use as evidence, do not invent beyond it):\n" + extra_context[:9000]
+    return prompt
 
 
-def build_repair_prompt(task: str, bad_code: str, errors: list) -> str:
+def build_repair_prompt(task: str, bad_code: str, errors: list, *, extra_context: str = "") -> str:
     err = "\n".join(f"- {e}" for e in errors) or "- validation failure"
-    return (
+    prompt = (
         "Repair the script against the CAD_CONTRACT without deleting requested features. "
-        "Preserve named parameters and repair the smallest failing part of the feature tree. "
-        "If the task describes a turned axisymmetric body, preserve the revolved-profile strategy and explicit axis line. "
-        "For through-all holes/cuts, preserve through_all=True. "
-        "Return exactly one Python code block.\n\n"
+        "Preserve named parameters, latest-model intent and engineering constraints. "
+        "Return exactly one complete Python code block.\n\n"
         f"VALIDATION ISSUES:\n{err}\n\n"
         f"CAD_CONTRACT:\n{task.strip()}\n\n"
         f"CURRENT SCRIPT:\n```python\n{(bad_code or '')[:9000]}\n```\n"
     )
+    if extra_context:
+        prompt += "\nENGINEERING CONTEXT:\n" + extra_context[:9000]
+    return prompt
