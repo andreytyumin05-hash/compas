@@ -8,7 +8,7 @@ from typing import List, Tuple
 
 _ALLOWED_FROM = {("core", "Part")}
 _PART_METHODS = {
-    "create", "sketch", "sketch_on_face", "extrude", "cut", "revolve", "get_edges",
+    "create", "from_active", "sketch", "sketch_on_face", "extrude", "cut", "revolve", "get_edges",
     "chamfer", "fillet", "fillet_edge", "chamfer_edge", "hole", "pattern_holes_circular",
     "pattern_holes_rect", "pattern_holes_points", "pattern_holes_linear", "hole_list",
     "mirror_points", "slot", "step", "boss", "hex_boss", "ring_groove", "groove",
@@ -23,11 +23,14 @@ _SKETCH_METHODS = {
 _FORBIDDEN_NAMES = {"win32com", "pythoncom", "gencache", "Dispatch", "GetActiveObject"}
 _FORBIDDEN_CALLS = {"loft", "sweep", "shell", "thread", "sketch_on_face"}
 _NEG_NUM = re.compile(r"(?:depth|diameter|radius|width|height|pcd|length|thickness)\s*=\s*-\s*\d", re.I)
+_EDIT_MARKER = re.compile(r"EDIT REQUEST|редакт|измен|передел|исправ|поменя|замен|перенес|смест|увелич|уменьш|доработ", re.I)
 
 
 def _call_name(node: ast.Call) -> Tuple[str | None, str | None]:
     if isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name):
         return node.func.value.id, node.func.attr
+    if isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Attribute):
+        return None, node.func.attr
     return None, None
 
 
@@ -41,12 +44,12 @@ def validate_generated_code(code: str) -> Tuple[bool, List[str]]:
         return False, [f"синтаксис: {exc}"]
 
     part_creates = 0
+    part_from_active = 0
     part_updates = 0
     imports_checked = False
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
-            for alias in node.names:
-                errors.append(f"запрещённый import: {alias.name}")
+            errors.append(f"запрещённый import: {node.names[0].name}")
         elif isinstance(node, ast.ImportFrom):
             imports_checked = True
             module = node.module or ""
@@ -60,6 +63,8 @@ def validate_generated_code(code: str) -> Tuple[bool, List[str]]:
             owner, method = _call_name(node)
             if owner == "Part" and method == "create":
                 part_creates += 1
+            if owner == "Part" and method == "from_active":
+                part_from_active += 1
             if owner == "part" and method == "update":
                 part_updates += 1
             if owner == "part" and method and method not in _PART_METHODS:
@@ -73,10 +78,19 @@ def validate_generated_code(code: str) -> Tuple[bool, List[str]]:
 
     if not imports_checked:
         errors.append("нужен импорт: from core import Part")
-    if part_creates == 0:
-        errors.append("ожидается Part.create(...)")
-    elif part_creates > 1:
-        errors.append("Part.create(...) должен вызываться один раз для одной детали")
+
+    edit_mode = bool(_EDIT_MARKER.search(code))
+    if edit_mode:
+        if part_from_active != 1:
+            errors.append("для edit-скрипта нужен ровно один Part.from_active()")
+        if part_creates:
+            errors.append("edit-скрипт не должен вызывать Part.create(...): изменение выполняется в открытой детали")
+    else:
+        if part_creates == 0 and part_from_active == 0:
+            errors.append("ожидается Part.create(...) для новой детали или Part.from_active() для явного режима редактирования")
+        if part_creates > 1:
+            errors.append("Part.create(...) должен вызываться один раз для одной детали")
+
     if part_updates == 0:
         errors.append("нужен part.update() в конце построения")
     if _NEG_NUM.search(code):
