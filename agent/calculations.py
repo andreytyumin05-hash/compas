@@ -68,7 +68,7 @@ def _power_kw(text: str) -> Optional[float]:
 def _speed_rpm(text: str) -> Optional[float]:
     return _find((
         r"(?:частот(?:а|ы)\s+вращения|скорост(?:ь|и)\s+вращения|оборотов|rpm|n)\D{0,25}(\d+(?:[\.,]\d+)?)\s*(?:об/?мин|rpm)?\b",
-    ,), text)
+    ), text)
 
 
 def shaft_diameter_from_torque(text: str) -> Optional[CalculationResult]:
