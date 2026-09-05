@@ -30,9 +30,11 @@ class Agent:
         temperature: float = 0.1,
         max_retries: int = 3,
         context: str = "",
+        mode: str = "create",
     ) -> Tuple[str, List[str]]:
         contract = task.strip()
-        template = try_template(contract) if not context else None
+        edit_mode = mode == "edit"
+        template = None if edit_mode or context else try_template(contract)
         if template:
             code = normalize_code(template)
             ok, errors = self._validate_all(contract, code)
@@ -43,6 +45,16 @@ class Agent:
         errors: List[str] = ["empty code"]
         last_raw = ""
         system_prompt = get_system_prompt(contract, extra_context=context)
+        if edit_mode:
+            system_prompt += (
+                "\n\n## EXECUTION MODE: EDIT OPEN DOCUMENT\n"
+                "Generate code for the already open KOMPAS detail. "
+                "The code MUST start with `from core import Part`, contain `# COMPAS_EDIT_MODE`, "
+                "call `Part.from_active()` exactly once, and NEVER call `Part.create(...)`. "
+                "Prefer changing existing native variables/constraints when they are available; "
+                "otherwise add/remove only the requested features on the active document. "
+                "Never reconstruct a second document."
+            )
 
         for attempt in range(max_retries + 1):
             if attempt == 0:
@@ -61,9 +73,19 @@ class Agent:
                 errors = [f"LLM: {exc}"]
                 continue
 
-            code = normalize_code(self._extract_code(last_raw))
+            code = normalize_code(self._extract_code(last_raw, allow_edit=edit_mode))
             ok, errors = self._validate_all(contract, code)
             if not ok:
+                continue
+
+            if edit_mode and (
+                "# COMPAS_EDIT_MODE" not in code
+                or "Part.from_active()" not in code
+                or "Part.create(" in code
+            ):
+                errors = [
+                    "edit mode violation: script must use exactly one Part.from_active() and no Part.create()"
+                ]
                 continue
 
             good, critic_errors = review_before_build(
@@ -93,8 +115,8 @@ class Agent:
         return True, []
 
     @staticmethod
-    def _extract_code(text: str) -> str:
-        """Extract the first syntactically valid CAD script, not model prose/reasoning."""
+    def _extract_code(text: str, *, allow_edit: bool = False) -> str:
+        """Extract the first syntactically valid CAD script."""
         if not text or not str(text).strip():
             return ""
         raw = re.sub(r"<think>[\s\S]*?</think>", "", str(text), flags=re.I).strip()
@@ -112,6 +134,7 @@ class Agent:
                 tree = ast.parse(code)
             except SyntaxError:
                 continue
+
             has_create = any(
                 isinstance(node, ast.Call)
                 and isinstance(node.func, ast.Attribute)
@@ -120,7 +143,15 @@ class Agent:
                 and node.func.attr == "create"
                 for node in ast.walk(tree)
             )
-            if has_create:
+            has_from_active = any(
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and isinstance(node.func.value, ast.Name)
+                and node.func.value.id == "Part"
+                and node.func.attr == "from_active"
+                for node in ast.walk(tree)
+            )
+            if (allow_edit and has_from_active and not has_create) or (not allow_edit and has_create):
                 return code
 
         return ""
