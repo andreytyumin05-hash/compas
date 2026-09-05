@@ -11,7 +11,6 @@ import argparse
 import contextlib
 import io
 import json
-import os
 import sys
 from pathlib import Path
 
@@ -24,10 +23,10 @@ def _task_from_file(path: str) -> str:
     return Path(path).read_text(encoding="utf-8").strip()
 
 
-def _create(task: str) -> Path:
+def _create(task: str, *, mode: str = "create") -> Path:
     from agent.build import run_task_export
     from core.model_store import latest_model_path
-    _, out = run_task_export(task, latest_model_path(), fmt="m3d")
+    _, out = run_task_export(task, latest_model_path(), fmt="m3d", mode=mode)
     return Path(out)
 
 
@@ -54,8 +53,6 @@ def main() -> int:
     args = parser.parse_args()
 
     try:
-        from core.model_store import has_latest_model
-
         if args.action == "save":
             result = _run_quiet(_save)
         else:
@@ -65,15 +62,15 @@ def main() -> int:
             if not task:
                 raise ValueError("empty task")
             if args.action == "edit":
-                if not has_latest_model():
-                    raise ValueError("Нет сохранённой последней модели для изменения. Сначала создайте деталь.")
                 task = (
-                    "EDIT REQUEST. Use the latest saved model context and generated script as the current design. "
+                    "EDIT REQUEST. Use the currently open KOMPAS detail as the source of truth. "
                     "Preserve all existing features, named parameters and relations unless this request explicitly changes them. "
-                    "Return a complete replacement CAD script that implements only the requested delta.\n\n"
+                    "Do not create a new document. Return a complete replacement edit script operating on the active document.\n\n"
                     + task
                 )
-            result = _run_quiet(lambda: _create(task))
+                result = _run_quiet(lambda: _create(task, mode="edit"))
+            else:
+                result = _run_quiet(lambda: _create(task, mode="create"))
         print(json.dumps({"ok": True, "path": str(result)}, ensure_ascii=False))
         return 0
     except Exception as exc:
