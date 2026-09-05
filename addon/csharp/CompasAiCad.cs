@@ -24,22 +24,6 @@ namespace CompasAiCad
         private static PropertyManagerBackend _native;
         private static bool _hostedNative;
 
-        [DllImport("user32.dll")]
-        private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
-
-        [DllImport("user32.dll")]
-        private static extern IntPtr FindWindow(string lpClassName, string lpWindowName);
-
-        [DllImport("user32.dll")]
-        private static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
-
-        [StructLayout(LayoutKind.Sequential)]
-        private struct RECT { public int Left, Top, Right, Bottom; }
-
-        private static readonly IntPtr HWND_TOP = new IntPtr(0);
-        private const uint SWP_NOACTIVATE = 0x0010;
-        private const uint SWP_SHOWWINDOW = 0x0040;
-
         [return: MarshalAs(UnmanagedType.BStr)] public string GetLibraryName() => "CompasAiCad";
         [return: MarshalAs(UnmanagedType.BStr)] public string DisplayLibraryName() => "AI CAD";
         public bool IsOnApplication7() => true;
@@ -58,7 +42,7 @@ namespace CompasAiCad
             try { ShowPanel(kompas_); }
             catch (Exception ex)
             {
-                MessageBox.Show("AI CAD: не удалось открыть панель.\n\n" + ex.Message,
+                MessageBox.Show("AI CAD: не удалось открыть встроенную панель.\n\n" + ex.Message,
                     "Compas AI CAD", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
@@ -67,103 +51,51 @@ namespace CompasAiCad
         {
             lock (Sync)
             {
+                if (_form != null && !_form.IsDisposed && _hostedNative)
+                {
+                    try { _form.BeginInvoke((Action)(() => _form.FocusTaskBox())); } catch { }
+                    return;
+                }
+
                 if (_form != null && !_form.IsDisposed)
                 {
-                    try
-                    {
-                        _form.BeginInvoke((Action)(() =>
-                        {
-                            if (!_hostedNative) PositionBesideKompas(_form);
-                            _form.Show();
-                            _form.BringToFront();
-                        }));
-                    }
-                    catch { }
-                    return;
+                    try { _form.BeginInvoke((Action)(() => _form.Close())); } catch { }
+                    _form = null;
                 }
 
                 PanelForm form = CreateFormOnStaThread();
                 _hostedNative = false;
 
-                bool forceNative = string.Equals(Environment.GetEnvironmentVariable("COMPAS_NATIVE_PROPERTY_PANEL"), "1", StringComparison.OrdinalIgnoreCase);
-                bool preferTool = string.Equals(Environment.GetEnvironmentVariable("COMPAS_FORCE_TOOL_PANEL"), "1", StringComparison.OrdinalIgnoreCase);
-
-                if (!preferTool)
+                try
                 {
-                    try
+                    _native = new PropertyManagerBackend();
+                    form.PrepareAsChildHost();
+                    if (!_native.TryOpen(kompas, form.Handle, form.PreferredWidth, form.PreferredHeight))
                     {
-                        _native = new PropertyManagerBackend();
-                        form.PrepareAsChildHost();
-                        if (_native.TryOpen(kompas, form.Handle, form.PreferredWidth, form.PreferredHeight))
-                        {
-                            _hostedNative = true;
-                            form.BeginInvoke((Action)(() => { form.Show(); form.SetHostMode(true); }));
-                            return;
-                        }
                         _native.Dispose();
                         _native = null;
+                        try { form.BeginInvoke((Action)(() => form.Close())); } catch { }
+                        throw new InvalidOperationException(
+                            "КОМПАС не принял AI CAD как встроенную вкладку PropertyManager. " +
+                            "Отдельное окно намеренно отключено: сначала исправляем нативную интеграцию.");
                     }
-                    catch
+
+                    _hostedNative = true;
+                    form.BeginInvoke((Action)(() =>
                     {
-                        try { _native?.Dispose(); } catch { }
-                        _native = null;
-                    }
+                        form.SetHostMode(true);
+                        form.Show();
+                        form.FocusTaskBox();
+                    }));
                 }
-
-                if (forceNative && !_hostedNative)
+                catch
                 {
-                    try { form.BeginInvoke((Action)(() => form.Close())); } catch { }
-                    throw new InvalidOperationException("COMPAS_NATIVE_PROPERTY_PANEL=1, но PropertyManager недоступен.");
+                    try { _native?.Dispose(); } catch { }
+                    _native = null;
+                    _hostedNative = false;
+                    throw;
                 }
-
-                form.BeginInvoke((Action)(() =>
-                {
-                    form.SetHostMode(false);
-                    PositionBesideKompas(form);
-                    form.Show();
-                }));
             }
-        }
-
-        private static void PositionBesideKompas(Form form)
-        {
-            try
-            {
-                IntPtr hwnd = FindKompasMainWindow();
-                if (hwnd == IntPtr.Zero)
-                {
-                    form.StartPosition = FormStartPosition.Manual;
-                    form.Location = new Point(Screen.PrimaryScreen.WorkingArea.Right - form.Width - 12, Screen.PrimaryScreen.WorkingArea.Top + 80);
-                    return;
-                }
-
-                RECT r;
-                if (!GetWindowRect(hwnd, out r)) return;
-
-                // Form is the actual WinForms type here; its dimensions are already initialized
-                // from PanelForm.PreferredWidth/PreferredHeight in the constructor/host setup.
-                int width = form.Width;
-                int height = Math.Min(form.Height, Math.Max(420, r.Bottom - r.Top - 40));
-                int x = r.Right - width - 8;
-                int y = r.Top + 48;
-                if (x < r.Left + 40) x = r.Left + 40;
-
-                form.StartPosition = FormStartPosition.Manual;
-                form.Size = new Size(width, height);
-                form.Location = new Point(x, y);
-                SetWindowPos(form.Handle, HWND_TOP, x, y, width, height, SWP_NOACTIVATE | SWP_SHOWWINDOW);
-            }
-            catch { }
-        }
-
-        private static IntPtr FindKompasMainWindow()
-        {
-            foreach (string t in new[] { "КОМПАС-3D", "KOMPAS-3D", "КОМПАС" })
-            {
-                IntPtr h = FindWindow(null, t);
-                if (h != IntPtr.Zero) return h;
-            }
-            return IntPtr.Zero;
         }
 
         private static PanelForm CreateFormOnStaThread()
@@ -244,7 +176,7 @@ namespace CompasAiCad
                 var header = new Panel { Dock = DockStyle.Top, Height = 44, BackColor = Color.FromArgb(32, 90, 167), Padding = new Padding(12, 10, 12, 8) };
                 header.Controls.Add(new Label { Text = "AI CAD", Dock = DockStyle.Fill, ForeColor = Color.White, Font = new Font("Segoe UI", 11F, FontStyle.Bold), TextAlign = ContentAlignment.MiddleLeft });
 
-                _modeHint = new Label { Text = "Создание или изменение открытой детали. Панель не перекрывает 3D-вид.", Dock = DockStyle.Top, Height = 40, Padding = new Padding(12, 8, 12, 4), ForeColor = Color.FromArgb(60, 60, 60) };
+                _modeHint = new Label { Text = "Встроенная панель КОМПАС. Описание передаётся напрямую в CAD-агент.", Dock = DockStyle.Top, Height = 40, Padding = new Padding(12, 8, 12, 4), ForeColor = Color.FromArgb(60, 60, 60) };
                 var taskLabel = new Label { Text = "Задача", Dock = DockStyle.Top, Height = 22, Padding = new Padding(12, 4, 12, 0), Font = new Font("Segoe UI", 8.5F, FontStyle.Bold) };
 
                 var taskHost = new Panel { Dock = DockStyle.Top, Height = 172, Padding = new Padding(12, 0, 12, 8) };
@@ -295,16 +227,15 @@ namespace CompasAiCad
 
             public void SetHostMode(bool nativeHosted)
             {
-                if (nativeHosted)
-                {
-                    FormBorderStyle = FormBorderStyle.None;
-                    _modeHint.Text = "Панель внутри КОМПАС (PropertyManager). 3D-вид не перекрывается.";
-                }
-                else
-                {
-                    FormBorderStyle = FormBorderStyle.SizableToolWindow;
-                    _modeHint.Text = "Боковая панель у окна КОМПАС (fallback). Не закрывает 3D-вид.";
-                }
+                FormBorderStyle = FormBorderStyle.None;
+                _modeHint.Text = nativeHosted
+                    ? "Встроенная панель KOMPAS PropertyManager."
+                    : "Встроенная панель.";
+            }
+
+            public void FocusTaskBox()
+            {
+                try { _task.Focus(); } catch { }
             }
 
             private void SetStatus(string text, bool error)
@@ -428,57 +359,40 @@ namespace CompasAiCad
                 {
                     string t = line.Trim();
                     if (t.Length == 0) continue;
-                    string low = t.ToLowerInvariant();
-                    if (low.Contains("traceback") || low.Contains("file \"") || low.StartsWith("from ")
-                        || low.Contains("import ") || low.Contains("com_error") || low.Contains("win32com")
-                        || low.Contains("pywintypes") || low.Contains("huggingface") || low.Contains("urllib3"))
-                        continue;
+                    if (t.StartsWith("Traceback", StringComparison.OrdinalIgnoreCase)) continue;
+                    if (t.StartsWith("File \"", StringComparison.OrdinalIgnoreCase)) continue;
+                    if (t.Contains("site-packages") || t.Contains("\venv\\")) continue;
                     kept.Add(t);
-                    if (kept.Count >= 4) break;
+                    if (kept.Count >= 3) break;
                 }
-                string result = string.Join(" ", kept);
+                string result = string.Join("\n", kept);
                 if (result.Length > 400) result = result.Substring(0, 397) + "…";
                 return result;
             }
 
+            private static string FindRepo()
+            {
+                string env = Environment.GetEnvironmentVariable("COMPAS_REPO");
+                if (!string.IsNullOrWhiteSpace(env) && Directory.Exists(env)) return Path.GetFullPath(env);
+                return AppDomain.CurrentDomain.BaseDirectory;
+            }
+
             private static string FindPython(string repo)
             {
-                string configured = Environment.GetEnvironmentVariable("COMPAS_PYTHON");
-                string[] candidates = { Path.Combine(repo, "venv", "Scripts", "python.exe"), configured ?? "", "python.exe" };
-                foreach (string item in candidates)
-                {
-                    if (string.IsNullOrWhiteSpace(item)) continue;
-                    if (Path.IsPathRooted(item)) { if (File.Exists(item)) return item; }
-                    else if (item == "python.exe") return item;
-                }
+                string env = Environment.GetEnvironmentVariable("COMPAS_PYTHON");
+                if (!string.IsNullOrWhiteSpace(env) && File.Exists(env)) return env;
+                string candidate = Path.Combine(repo, "venv", "Scripts", "python.exe");
+                if (File.Exists(candidate)) return candidate;
                 return "python.exe";
             }
 
-            private static string FindRepo()
+            private readonly struct ProcessResult
             {
-                string configured = Environment.GetEnvironmentVariable("COMPAS_REPO");
-                if (!string.IsNullOrWhiteSpace(configured) && File.Exists(Path.Combine(configured, "agent", "build.py"))) return configured;
-                DirectoryInfo dir = new DirectoryInfo(AppDomain.CurrentDomain.BaseDirectory);
-                while (dir != null)
-                {
-                    if (File.Exists(Path.Combine(dir.FullName, "agent", "build.py"))) return dir.FullName;
-                    dir = dir.Parent;
-                }
-                return Directory.GetCurrentDirectory();
+                public readonly int ExitCode;
+                public readonly string Output;
+                public readonly string Error;
+                public ProcessResult(int exitCode, string output, string error) { ExitCode = exitCode; Output = output; Error = error; }
             }
-        }
-
-        private readonly struct ProcessResult
-        {
-            public ProcessResult(int exitCode, string output, string error)
-            {
-                ExitCode = exitCode;
-                Output = output ?? string.Empty;
-                Error = error ?? string.Empty;
-            }
-            public int ExitCode { get; }
-            public string Output { get; }
-            public string Error { get; }
         }
     }
 }
