@@ -28,8 +28,8 @@ except Exception:
     pass
 
 VERSION_FILE = _ROOT / "VERSION"
-GITHUB_BRANCH = "https://github.com/andreytyumin05-hash/compas/tree/agent-v2-vision"
-GITHUB_COMMITS = "https://github.com/andreytyumin05-hash/compas/commits/agent-v2-vision"
+GITHUB_BRANCH = "https://github.com/andreytyumin05-hash/compas/tree/features/vision"
+GITHUB_COMMITS = "https://github.com/andreytyumin05-hash/compas/commits/features/vision"
 
 
 def _version() -> str:
@@ -102,7 +102,7 @@ def main() -> None:
     def check_updates() -> None:
         write(
             f"Версия: {_version()}\n"
-            f"Обновление: git pull origin agent-v2-vision\n"
+            f"Обновление: git pull origin features/vision\n"
             f"или смотри коммиты: {GITHUB_COMMITS}"
         )
         webbrowser.open(GITHUB_BRANCH)
