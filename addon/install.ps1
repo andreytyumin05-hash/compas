@@ -7,21 +7,6 @@ $principal = New-Object Security.Principal.WindowsPrincipal($currentIdentity)
 $isAdmin = $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if (-not $isAdmin) {
     $script = (Resolve-Path $PSCommandPath).Path
-    $arguments = @(
-        '-NoProfile'
-        '-ExecutionPolicy', 'Bypass'
-        '-File', ('"' + $script + '"')
-    )
-
-    if (-not [string]::IsNullOrWhiteSpace($env:COMPAS_REPO)) {
-        $arguments += @('-COMPAS_REPO', ('"' + $env:COMPAS_REPO + '"'))
-    }
-    if (-not [string]::IsNullOrWhiteSpace($env:COMPAS_PYTHON)) {
-        $arguments += @('-COMPAS_PYTHON', ('"' + $env:COMPAS_PYTHON + '"'))
-    }
-
-    # Environment variables are inherited by the elevated PowerShell process,
-    # so no explicit parameter handling is required. Keep the command simple.
     $arguments = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ('"' + $script + '"'))
     Write-Host 'Administrator rights are required for COM registration. Requesting UAC...' -ForegroundColor Yellow
     $proc = Start-Process -FilePath 'powershell.exe' -Verb RunAs -ArgumentList $arguments -Wait -PassThru
@@ -37,13 +22,18 @@ if ([string]::IsNullOrWhiteSpace($repo)) {
 }
 $repo = (Resolve-Path $repo).Path
 
-$python = $env:COMPAS_PYTHON
+# Prefer the repository virtual environment so the add-in is reproducible and
+# does not depend on which Python happened to be first on PATH.
+$python = Join-Path $repo 'venv\Scripts\python.exe'
+if (-not (Test-Path $python)) {
+    $python = $env:COMPAS_PYTHON
+}
 if ([string]::IsNullOrWhiteSpace($python)) {
     $cmd = Get-Command python.exe -ErrorAction SilentlyContinue
     if ($cmd) { $python = $cmd.Source }
 }
-if ([string]::IsNullOrWhiteSpace($python)) {
-    throw 'python.exe not found. Activate Python or set COMPAS_PYTHON.'
+if ([string]::IsNullOrWhiteSpace($python) -or -not (Test-Path $python)) {
+    throw 'Project venv Python not found. Create venv or set COMPAS_PYTHON.'
 }
 
 $csproj = Join-Path $PSScriptRoot 'csharp\CompasAiCad.csproj'
@@ -90,9 +80,6 @@ Write-Host "[1/4] Restoring NuGet assets and building $csproj"
 if ($LASTEXITCODE -ne 0) { throw "MSBuild restore/build failed with exit code $LASTEXITCODE" }
 
 $dll = Join-Path $PSScriptRoot 'csharp\bin\x64\Release\net48\CompasAiCad.dll'
-if (-not (Test-Path $dll)) {
-    $dll = Join-Path $PSScriptRoot 'csharp\bin\Release\CompasAiCad.dll'
-}
 if (-not (Test-Path $dll)) { throw "Build output not found: $dll" }
 
 $regasm = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\RegAsm.exe'
