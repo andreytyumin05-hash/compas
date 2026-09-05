@@ -5,8 +5,8 @@ using System.Text;
 namespace CompasAiCad
 {
     /// <summary>
-    /// Embeds HWND into KOMPAS PropertyManager tab (API7 CreatePropertyManager).
-    /// No top-level Windows form.
+    /// Embeds HWND into the KOMPAS process PropertyManager (API7 CreatePropertyManager(false)).
+    /// No top-level Windows form is used as a fallback.
     /// </summary>
     internal sealed class PropertyManagerBackend : IDisposable
     {
@@ -28,38 +28,35 @@ namespace CompasAiCad
             if (app == null) { LastError = "Не получен IApplication (KOMPAS.Application.7)."; return false; }
 
             var log = new StringBuilder();
-            foreach (bool libraryPanel in new[] { true, false })
+            try
             {
-                try
+                if (TryOpenOn(app, hwnd, preferredWidth, preferredHeight, log))
                 {
-                    if (TryOpenOn(app, hwnd, preferredWidth, preferredHeight, libraryPanel, log))
-                    {
-                        IsReady = true;
-                        return true;
-                    }
-                }
-                catch (Exception ex)
-                {
-                    log.AppendLine("mode=" + libraryPanel + ": " + ex.Message);
+                    IsReady = true;
+                    return true;
                 }
             }
+            catch (Exception ex)
+            {
+                log.AppendLine("CreatePropertyManager(false): " + ex.Message);
+            }
 
-            LastError = "PropertyManager не принял вкладку.\n" + log;
+            LastError = "Стандартный PropertyManager КОМПАС не принял вкладку AI CAD.\n" + log;
             return false;
         }
 
-        private bool TryOpenOn(object app, IntPtr hwnd, int w, int h, bool libraryPanel, StringBuilder log)
+        private bool TryOpenOn(object app, IntPtr hwnd, int w, int h, StringBuilder log)
         {
             object manager;
-            try { manager = Invoke(app, "CreatePropertyManager", libraryPanel); }
+            try { manager = Invoke(app, "CreatePropertyManager", false); }
             catch (Exception ex)
             {
-                log.AppendLine("CreatePropertyManager(" + libraryPanel + "): " + ex.Message);
+                log.AppendLine("CreatePropertyManager(false): " + ex.Message);
                 return false;
             }
             if (manager == null)
             {
-                log.AppendLine("CreatePropertyManager(" + libraryPanel + ") = null");
+                log.AppendLine("CreatePropertyManager(false) = null");
                 return false;
             }
 
