@@ -23,14 +23,12 @@ _SKETCH_METHODS = {
 _FORBIDDEN_NAMES = {"win32com", "pythoncom", "gencache", "Dispatch", "GetActiveObject"}
 _FORBIDDEN_CALLS = {"loft", "sweep", "shell", "thread", "sketch_on_face"}
 _NEG_NUM = re.compile(r"(?:depth|diameter|radius|width|height|pcd|length|thickness)\s*=\s*-\s*\d", re.I)
-_EDIT_MARKER = re.compile(r"EDIT REQUEST|редакт|измен|передел|исправ|поменя|замен|перенес|смест|увелич|уменьш|доработ", re.I)
+_EDIT_MARKER = "COMPAS_EDIT_MODE"
 
 
 def _call_name(node: ast.Call) -> Tuple[str | None, str | None]:
     if isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name):
         return node.func.value.id, node.func.attr
-    if isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Attribute):
-        return None, node.func.attr
     return None, None
 
 
@@ -79,7 +77,7 @@ def validate_generated_code(code: str) -> Tuple[bool, List[str]]:
     if not imports_checked:
         errors.append("нужен импорт: from core import Part")
 
-    edit_mode = bool(_EDIT_MARKER.search(code))
+    edit_mode = _EDIT_MARKER in code
     if edit_mode:
         if part_from_active != 1:
             errors.append("для edit-скрипта нужен ровно один Part.from_active()")
