@@ -41,7 +41,6 @@ def _save() -> Path:
 
 
 def _run_quiet(fn):
-    # Rich/COM/LLM diagnostics belong in logs, not in the KOMPAS text panel.
     stdout = io.StringIO()
     stderr = io.StringIO()
     with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
@@ -55,6 +54,8 @@ def main() -> int:
     args = parser.parse_args()
 
     try:
+        from core.model_store import has_latest_model
+
         if args.action == "save":
             result = _run_quiet(_save)
         else:
@@ -64,6 +65,8 @@ def main() -> int:
             if not task:
                 raise ValueError("empty task")
             if args.action == "edit":
+                if not has_latest_model():
+                    raise ValueError("Нет сохранённой последней модели для изменения. Сначала создайте деталь.")
                 task = (
                     "EDIT REQUEST. Use the latest saved model context and generated script as the current design. "
                     "Preserve all existing features, named parameters and relations unless this request explicitly changes them. "
