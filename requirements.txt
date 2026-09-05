@@ -4,10 +4,12 @@ python-dotenv>=1.0.0
 
 # LLM
 groq>=0.11.0
-# Current Gemini SDK. google-generativeai remains only as a legacy fallback.
-google-genai>=1.0.0
-google-generativeai>=0.8.0
+google-genai>=2.22.0
 openai>=1.40.0
+
+# Engineering web research
+# Current stable Python metasearch client; used only for standards-triggered research.
+ddgs>=9.16.0
 
 # Utils
 rich>=13.7.0
