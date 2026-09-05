@@ -1,8 +1,6 @@
 # KOMPAS AI CAD Add-In
 
-Native KOMPAS integration layer for the `features/vision` branch.
-
-The add-in is a COM/ActiveX KOMPAS library written in C#/.NET Framework 4.8. KOMPAS loads it through the AddIns registry entry. The add-in exposes an **AI CAD** command and embeds a borderless WinForms panel into the KOMPAS main window. The panel is intentionally thin: all CAD/LLM logic stays in the existing Python agent.
+Integration layer for the `features/vision` branch.
 
 ## Architecture
 
@@ -11,18 +9,30 @@ KOMPAS-3D v23
     |
     +-- AI CAD Add-In (addon/csharp)
     |      |
-    |      +-- embedded panel
+    |      +-- native IPropertyManager backend (capability-driven)
+    |      +-- proven WinForms fallback UI
     |      +-- task/edit/save commands
-    |      +-- launches Python bridge
+    |      +-- Python process bridge
     |
     +-- addon/bridge.py
            |
            +-- agent.build.run_task_export()
                   |
-                  +-- core -> KOMPAS COM -> active .m3d
+                  +-- live active-document context
+                  +-- latest model context
+                  +-- engineering calculation / standards research
+                  +-- core -> KOMPAS COM
 ```
 
-KOMPAS officially supports ActiveX libraries, `ExternalRunCommand`, API7 negotiation and custom property panels. The current implementation uses the supported ActiveX library route but hosts a real Win32 child panel in the KOMPAS window so the UI can use ordinary WinForms controls without making the CAD core depend on .NET UI APIs.
+The add-in no longer treats the Win32 child panel as the only UI architecture. A native `IApplication::CreatePropertyManager(...)` backend is now present and integrated behind a capability probe. Because the exact Automation surface exposed by a user's local KOMPAS v23 installation is not available to this repository at build time, the native backend is opt-in and falls back to the known-working panel instead of risking a broken add-in.
+
+The native backend can be tested with:
+
+```powershell
+$env:COMPAS_NATIVE_PROPERTY_PANEL = "1"
+```
+
+Then restart KOMPAS and open **Панель AI CAD**. On a machine where the v23 Automation members match the supported signatures, the add-in will use the native property-manager backend. Otherwise it silently keeps the stable WinForms panel.
 
 ## Build
 
@@ -46,20 +56,22 @@ The installer builds `addon/csharp/CompasAiCad.csproj`, registers the COM assemb
 
 with `ProgID=CompasAiCad.Panel`, `AutoConnect=1`.
 
-If the environment variables are omitted, the installer uses the current repository and the first `python.exe` found on PATH.
+## Current edit workflow
 
-## First launch
+1. Open the target **3D Деталь** in KOMPAS-3D.
+2. Open **AI CAD**.
+3. Create a model normally, or open an existing `.m3d` made elsewhere.
+4. For a change, press **Изменить открытую** and describe the delta in ordinary language, e.g. `увеличь длину шейки до 140 мм и перенеси отверстие на ось симметрии`.
+5. Before generation, the agent reads the active KOMPAS document and a best-effort feature-tree snapshot, then combines it with the latest saved generated script/context.
+6. Edit scripts are required to use exactly one `Part.from_active()` and must not create a second `Part` document.
+7. After a successful edit, the latest context is replaced; older generated contexts are not retained.
 
-1. Close KOMPAS-3D.
-2. Run `addon/install.ps1` as a normal user.
-3. Start KOMPAS-3D v23.
-4. Open a 3D part document.
-5. Open the library menu and choose **AI CAD / Панель AI CAD**.
-6. Enter a Russian or English engineering description and press **Создать**.
-7. The add-in writes the task to a temporary UTF-8 file and starts the existing Python agent. The result is saved as `.compas_tmp/latest_model.m3d`.
+This makes an open KOMPAS document a first-class edit target. It does not yet guarantee that every arbitrary pre-existing native KOMPAS feature can be edited parametrically: the agent can only modify what the current core API can address. Native KOMPAS variable/constraint binding remains a separate compatibility layer under `core/params.py`.
+
+## Engineering context
+
+Technical standard-related tasks can trigger web research through `agent/web_search.py`; calculation-driven tasks can use `agent/calculations.py`. Research is advisory and numeric standard values are never supposed to be invented when the source context does not establish them.
 
 ## Important design choice
 
-The add-in does not duplicate the CAD kernel. `agent/`, `core/`, vision, validation, repair and KOMPAS COM operations remain the single source of truth. This prevents the native UI from becoming a second CAD implementation.
-
-The add-in also does not claim native KOMPAS parameterization by itself. Native variable/dimension binding remains the responsibility of `core/params.py` and the generated KOMPAS sketches/features.
+The add-in does not duplicate the CAD kernel. `agent/`, `core/`, vision, validation, repair and KOMPAS COM operations remain the single source of truth.
