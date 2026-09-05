@@ -17,17 +17,45 @@ if ([string]::IsNullOrWhiteSpace($python)) {
 
 $csproj = Join-Path $PSScriptRoot 'csharp\CompasAiCad.csproj'
 $msbuild = $null
+
+# First try the standard Visual Studio discovery mechanism.
 $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
 if (Test-Path $vswhere) {
     $msbuild = & $vswhere -latest -products * -requires Microsoft.Component.MSBuild -find 'MSBuild\**\Bin\MSBuild.exe' | Select-Object -First 1
 }
+
+# Fall back to PATH if MSBuild is already exposed by the shell.
 if ([string]::IsNullOrWhiteSpace($msbuild)) {
     $cmd = Get-Command msbuild.exe -ErrorAction SilentlyContinue
     if ($cmd) { $msbuild = $cmd.Source }
 }
+
+# Support Visual Studio installed into a custom location (for example D:\VS_INST\PROGRAM).
 if ([string]::IsNullOrWhiteSpace($msbuild)) {
-    throw 'MSBuild not found. Install Visual Studio 2022 with .NET desktop development workload.'
+    $customRoots = @(
+        $env:VSINSTALLDIR,
+        'D:\VS_INST\PROGRAM',
+        'C:\Program Files\Microsoft Visual Studio\2022\BuildTools',
+        'C:\Program Files\Microsoft Visual Studio\2022\Community',
+        'C:\Program Files\Microsoft Visual Studio\2022\Professional',
+        'C:\Program Files\Microsoft Visual Studio\2022\Enterprise'
+    ) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+
+    foreach ($root in $customRoots) {
+        $candidate = Join-Path $root 'MSBuild\Current\Bin\MSBuild.exe'
+        if (Test-Path $candidate) {
+            $msbuild = $candidate
+            break
+        }
+    }
 }
+
+if ([string]::IsNullOrWhiteSpace($msbuild)) {
+    throw 'MSBuild not found. Install Visual Studio 2022 Build Tools with the .NET desktop build tools workload.'
+}
+
+$msbuild = (Resolve-Path $msbuild).Path
+Write-Host "Using MSBuild: $msbuild"
 
 Write-Host "[1/4] Building $csproj"
 & $msbuild $csproj /t:Build /p:Configuration=Release /p:Platform=x64 /m
