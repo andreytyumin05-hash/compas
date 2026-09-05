@@ -7,7 +7,10 @@ import re
 from .calculations import calculation_context
 from .web_search import format_results, search_engineering
 
-_CALC_HINTS = re.compile(r"(?:расч(?:ет|читай)|крутящ|момент|вал|мощност|оборотов|напряжен|запас\s+прочност)", re.I)
+_CALC_HINTS = re.compile(
+    r"(?:расч(?:ет|читай)|крутящ|изгибающ|момент|вал|мощност|оборотов|напряжен|запас\s+прочност|Mb|Mt|torque|bending)",
+    re.I,
+)
 
 
 def build_engineering_context(task: str) -> str:
