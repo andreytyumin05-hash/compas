@@ -28,19 +28,17 @@ namespace CompasAiCad
 
         public bool IsOnApplication7() => true;
 
-        // KOMPAS asks this method for menu entries. One command is enough:
-        // it opens the embedded AI CAD panel.
         [return: MarshalAs(UnmanagedType.BStr)]
         public string ExternalMenuItem(short number, ref short itemType, ref short command)
         {
             if (number == 0)
             {
-                itemType = 1; // MENUITEM
+                itemType = 1;
                 command = 1;
                 return "Панель AI CAD";
             }
 
-            itemType = 3; // ENDMENU
+            itemType = 3;
             command = -1;
             return string.Empty;
         }
@@ -124,7 +122,6 @@ namespace CompasAiCad
             private const int WS_CHILD = 0x40000000;
             private const int WS_VISIBLE = 0x10000000;
             private const int WS_CLIPCHILDREN = 0x02000000;
-            private const int WS_EX_TOOLWINDOW = 0x00000080;
             private const int SWP_NOACTIVATE = 0x0010;
             private const int SWP_SHOWWINDOW = 0x0040;
 
@@ -152,7 +149,7 @@ namespace CompasAiCad
             private readonly TextBox _task;
             private readonly TextBox _log;
             private readonly Label _status;
-            private readonly Timer _layoutTimer;
+            private readonly System.Windows.Forms.Timer _layoutTimer;
 
             public PanelForm(IntPtr parent)
             {
@@ -237,7 +234,7 @@ namespace CompasAiCad
                 Controls.Add(title);
 
                 Shown += (s, e) => AttachAndLayout();
-                _layoutTimer = new Timer { Interval = 500 };
+                _layoutTimer = new System.Windows.Forms.Timer { Interval = 500 };
                 _layoutTimer.Tick += (s, e) => AttachAndLayout();
                 _layoutTimer.Start();
             }
