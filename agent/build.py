@@ -103,11 +103,11 @@ def _active_live_context() -> str:
         raise RuntimeError(f"Для режима изменения нужна открытая 3D-деталь КОМПАС: {exc}") from exc
 
 
-def run_task(task: str, *, max_com_retries: int = 3, visual_loop: Optional[bool] = None) -> str:
+def run_task(task: str, *, max_com_retries: int = 3, visual_loop: Optional[bool] = None, mode: str = "auto") -> str:
     normalized = re.sub(r"^\s*(?:распознал\s+так|detected|recognized)\s*[:\-]*\s*", "", (task or "").strip(), flags=re.I)
     normalized = " ".join(normalized.replace(">>", " ").replace("|", " ").split())
 
-    edit_mode = _is_edit_task(normalized)
+    edit_mode = mode == "edit" or (mode == "auto" and _is_edit_task(normalized))
     is_vision_task = "CAD_CONTRACT v2" in normalized or "CAD_CONTRACT v3" in normalized or "drawing2model" in normalized.lower()
     if visual_loop is None:
         explicit = os.getenv("COMPAS_VISUAL_LOOP")
@@ -120,33 +120,17 @@ def run_task(task: str, *, max_com_retries: int = 3, visual_loop: Optional[bool]
 
     agent = Agent()
     started = time.time()
-    code, errors = agent.generate_checked(normalized, max_retries=max(2, max_com_retries), context=engineering)
+    code, errors = agent.generate_checked(
+        normalized,
+        max_retries=max(2, max_com_retries),
+        context=engineering,
+        mode="edit" if edit_mode else "create",
+    )
     if errors or must_fix_holes(code):
         raise RuntimeError("Код не прошёл проверку: " + "; ".join((errors or []) + (["hole coverage"] if must_fix_holes(code) else [])))
 
-    if edit_mode and ("COMPAS_EDIT_MODE" not in code or "Part.from_active()" not in code or "Part.create(" in code):
-        repaired = ""
-        for _ in range(2):
-            raw = agent.llm.chat([
-                {"role": "system", "content": get_system_prompt(normalized, extra_context=engineering)},
-                {"role": "user", "content": build_repair_prompt(
-                    normalized,
-                    code,
-                    [
-                        "EDIT MODE contract violation: generated code must contain # COMPAS_EDIT_MODE, exactly one Part.from_active(), and no Part.create().",
-                        "The operation must target the currently open KOMPAS detail.",
-                    ],
-                    extra_context=engineering,
-                )},
-            ], temperature=0.1)
-            repaired = normalize_code(agent._extract_code(raw or ""))
-            ok, validation_errors = validate_generated_code(repaired)
-            if ok:
-                code = repaired
-                break
-            code = repaired
-        if not code or "COMPAS_EDIT_MODE" not in code or "Part.from_active()" not in code or "Part.create(" in code:
-            raise RuntimeError("LLM не сформировал безопасный edit-скрипт для открытой детали")
+    if edit_mode and ("# COMPAS_EDIT_MODE" not in code or "Part.from_active()" not in code or "Part.create(" in code):
+        raise RuntimeError("LLM не сформировал безопасный edit-скрипт для открытой детали")
 
     final = _ensure_visual_tail(code)
     work = Path(tempfile.mkdtemp(prefix="compas_vis_"))
@@ -182,9 +166,9 @@ def run_task(task: str, *, max_com_retries: int = 3, visual_loop: Optional[bool]
                             {"role": "system", "content": get_system_prompt(normalized, extra_context=engineering)},
                             {"role": "user", "content": build_repair_prompt(normalized, final, issues + ["TREE/STATE:\n" + tree_text[:1200]], extra_context=engineering)},
                         ], temperature=0.1)
-                        repaired = normalize_code(agent._extract_code(raw or ""))
+                        repaired = normalize_code(agent._extract_code(raw or "", allow_edit=edit_mode))
                         ok, _ = validate_generated_code(repaired)
-                        if ok:
+                        if ok and (not edit_mode or ("Part.from_active()" in repaired and "Part.create(" not in repaired)):
                             good, _ = review_before_build(normalized, repaired, llm=None, use_llm=False)
                             if good:
                                 final = _ensure_visual_tail(repaired)
@@ -203,18 +187,18 @@ def run_task(task: str, *, max_com_retries: int = 3, visual_loop: Optional[bool]
                     {"role": "system", "content": get_system_prompt(normalized, extra_context=engineering)},
                     {"role": "user", "content": build_repair_prompt(normalized, final, [str(exc)], extra_context=engineering)},
                 ], temperature=0.1)
-                repaired = normalize_code(agent._extract_code(raw or ""))
+                repaired = normalize_code(agent._extract_code(raw or "", allow_edit=edit_mode))
                 ok, _ = validate_generated_code(repaired)
-                if ok:
+                if ok and (not edit_mode or ("Part.from_active()" in repaired and "Part.create(" not in repaired)):
                     final = _ensure_visual_tail(repaired)
             except Exception:
                 pass
     raise RuntimeError(f"КОМПАС: {last_error}")
 
 
-def run_task_export(task: str, out_path: str | Path, fmt: str = "m3d") -> Tuple[str, Path]:
+def run_task_export(task: str, out_path: str | Path, fmt: str = "m3d", *, mode: str = "auto") -> Tuple[str, Path]:
     from core import Part
-    code = run_task(task)
+    code = run_task(task, mode=mode)
     return code, Part.from_active().export(out_path, fmt=fmt)
 
 
@@ -230,7 +214,3 @@ def main() -> None:
     except Exception as exc:
         console.print(f"[red]{exc}[/]")
         raise SystemExit(1)
-
-
-if __name__ == "__main__":
-    main()
