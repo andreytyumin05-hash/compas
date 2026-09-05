@@ -30,45 +30,42 @@ def _param_value(obj: Any, names: tuple[str, ...], value: Any) -> bool:
 
 
 def _handle_data(pts: list[tuple[float, float]], i: int, smooth: bool) -> tuple[float, float, float]:
-    """Return (left_length, right_length, tangent_angle_deg) for a smooth node."""
-    x, y = pts[i]
-    if not smooth or len(pts) < 3:
+    """Return handle lengths and tangent angle for a smooth Bezier node."""
+    if not smooth:
         return 0.0, 0.0, 0.0
-    prev = pts[i - 1] if i > 0 else pts[-1]
-    nxt = pts[(i + 1) % len(pts)] if i + 1 < len(pts) or pts else pts[0]
-    if not (i > 0 and (i + 1 < len(pts) or False)) and not False:
-        # For open-end nodes, use the available neighbour as a tangent source.
-        if i == 0:
-            vx, vy = nxt[0] - x, nxt[1] - y
-            left_len, right_len = 0.0, math.hypot(vx, vy) * 0.30
-        elif i == len(pts) - 1:
-            vx, vy = x - prev[0], y - prev[1]
-            left_len, right_len = math.hypot(vx, vy) * 0.30, 0.0
-        else:
-            vx, vy = nxt[0] - prev[0], nxt[1] - prev[1]
-            span_prev = math.hypot(x - prev[0], y - prev[1])
-            span_next = math.hypot(nxt[0] - x, nxt[1] - y)
-            left_len, right_len = span_prev * 0.30, span_next * 0.30
-    else:
-        vx, vy = nxt[0] - prev[0], nxt[1] - prev[1]
-        left_len = math.hypot(x - prev[0], y - prev[1]) * 0.30
-        right_len = math.hypot(nxt[0] - x, nxt[1] - y) * 0.30
-    return left_len, right_len, math.degrees(math.atan2(vy, vx))
+    x, y = pts[i]
+    if i == 0:
+        nxt = pts[1]
+        vx, vy = nxt[0] - x, nxt[1] - y
+        return 0.0, math.hypot(vx, vy) * 0.30, math.degrees(math.atan2(vy, vx))
+    if i == len(pts) - 1:
+        prev = pts[i - 1]
+        vx, vy = x - prev[0], y - prev[1]
+        return math.hypot(vx, vy) * 0.30, 0.0, math.degrees(math.atan2(vy, vx))
+    prev, nxt = pts[i - 1], pts[i + 1]
+    vx, vy = nxt[0] - prev[0], nxt[1] - prev[1]
+    return (
+        math.hypot(x - prev[0], y - prev[1]) * 0.30,
+        math.hypot(nxt[0] - x, nxt[1] - y) * 0.30,
+        math.degrees(math.atan2(vy, vx)),
+    )
 
 
-def _create_bezier_point(doc2d: Any, kompas: Any, pts: list[tuple[float, float]], index: int, smooth: bool) -> None:
+def _create_bezier_point(
+    doc2d: Any,
+    kompas: Any,
+    pts: list[tuple[float, float]],
+    index: int,
+    smooth: bool,
+) -> None:
     get_ps = getattr(kompas, "GetParamStruct", None)
     point_fn = getattr(doc2d, "ksBezierPoint", None)
     if not callable(get_ps) or not callable(point_fn):
         raise KompasOperationError("spline: ksBezierPoint/GetParamStruct недоступны в API5")
 
-    try:
-        param = get_ps(KO_BEZIER_POINT_PARAM)
-    except Exception as exc:
-        raise KompasOperationError("spline: GetParamStruct(ko_BezierPointParam=17) failed") from exc
+    param = get_ps(KO_BEZIER_POINT_PARAM)
     if param is None:
         raise KompasOperationError("spline: ksBezierPointParam is None")
-
     try:
         init = getattr(param, "Init", None)
         if callable(init):
@@ -81,9 +78,6 @@ def _create_bezier_point(doc2d: Any, kompas: Any, pts: list[tuple[float, float]]
         raise KompasOperationError("spline: не удалось задать x/y BezierPointParam")
 
     left_len, right_len, angle = _handle_data(pts, index, smooth)
-    # API5 BezierPointParam exposes handle lengths and tangent angle.  Keep
-    # these best-effort: x/y are mandatory; zero handles still create a real
-    # Bezier object rather than a polyline fallback.
     _param_value(param, ("left", "Left"), float(left_len))
     _param_value(param, ("right", "Right"), float(right_len))
     _param_value(param, ("ang", "angle", "Angle"), float(angle))
@@ -121,7 +115,7 @@ def spline_impl(
 
         app = self._part.app
         kompas = getattr(app, "k5", None) or getattr(app, "app7", None)
-        if kompas is None or not callable(getattr(kompas, "GetParamStruct", None):
+        if kompas is None or not callable(getattr(kompas, "GetParamStruct", None)):
             raise KompasOperationError("spline: KompasObject.GetParamStruct недоступен")
 
         result = bezier(1 if closed else 0, int(style))
