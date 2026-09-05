@@ -1,5 +1,36 @@
 $ErrorActionPreference = 'Stop'
 
+# RegAsm /codebase writes COM registration and requires elevation.
+# Relaunch this installer through UAC once, preserving the configured paths.
+$currentIdentity = [Security.Principal.WindowsIdentity]::GetCurrent()
+$principal = New-Object Security.Principal.WindowsPrincipal($currentIdentity)
+$isAdmin = $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+if (-not $isAdmin) {
+    $script = (Resolve-Path $PSCommandPath).Path
+    $arguments = @(
+        '-NoProfile'
+        '-ExecutionPolicy', 'Bypass'
+        '-File', ('"' + $script + '"')
+    )
+
+    if (-not [string]::IsNullOrWhiteSpace($env:COMPAS_REPO)) {
+        $arguments += @('-COMPAS_REPO', ('"' + $env:COMPAS_REPO + '"'))
+    }
+    if (-not [string]::IsNullOrWhiteSpace($env:COMPAS_PYTHON)) {
+        $arguments += @('-COMPAS_PYTHON', ('"' + $env:COMPAS_PYTHON + '"'))
+    }
+
+    # Environment variables are inherited by the elevated PowerShell process,
+    # so no explicit parameter handling is required. Keep the command simple.
+    $arguments = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ('"' + $script + '"'))
+    Write-Host 'Administrator rights are required for COM registration. Requesting UAC...' -ForegroundColor Yellow
+    $proc = Start-Process -FilePath 'powershell.exe' -Verb RunAs -ArgumentList $arguments -Wait -PassThru
+    if ($null -eq $proc -or $proc.ExitCode -ne 0) {
+        throw "Elevated installer failed with exit code $($proc.ExitCode)."
+    }
+    exit 0
+}
+
 $repo = $env:COMPAS_REPO
 if ([string]::IsNullOrWhiteSpace($repo)) {
     $repo = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
