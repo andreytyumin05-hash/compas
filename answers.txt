@@ -1,25 +1,31 @@
-Распознал так: (картинку прикрепил в .png)
+я ввожу текст, нужно ли изменять гемини, он же больше по фото действует
+(venv) PS D:\учеба\ML_study\compas> python -m bot
+Bot polling… (КОМПАС on this PC)
+INFO:httpx:HTTP Request: POST https://api.telegram.org/bot8976285082:AAFmJbtek7CPqHJOZoWSsuzx4Xxa8TdEdck/getMe "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.telegram.org/bot8976285082:AAFmJbtek7CPqHJOZoWSsuzx4Xxa8TdEdck/deleteWebhook "HTTP/1.1 200 OK"
+INFO:telegram.ext.Application:Application started
+INFO:httpx:HTTP Request: POST https://api.telegram.org/bot8976285082:AAFmJbtek7CPqHJOZoWSsuzx4Xxa8TdEdck/getUpdates "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.telegram.org/bot8976285082:AAFmJbtek7CPqHJOZoWSsuzx4Xxa8TdEdck/getUpdates "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.telegram.org/bot8976285082:AAFmJbtek7CPqHJOZoWSsuzx4Xxa8TdEdck/getUpdates "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.telegram.org/bot8976285082:AAFmJbtek7CPqHJOZoWSsuzx4Xxa8TdEdck/getUpdates "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.telegram.org/bot8976285082:AAFmJbtek7CPqHJOZoWSsuzx4Xxa8TdEdck/getUpdates "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.telegram.org/bot8976285082:AAFmJbtek7CPqHJOZoWSsuzx4Xxa8TdEdck/sendMessage "HTTP/1.1 200 OK"
+D:\учеба\ML_study\compas\agent\llm.py:94: FutureWarning: 
 
-Деталь: Крышка (крышка)
-Ось: Z
-Размеры: габарит 116×80 mm; толщина 13 mm; общая высота 31 mm
+All support for the `google.generativeai` package has ended. It will no longer be receiving 
+updates or bug fixes. Please switch to the `google.genai` package as soon as possible.
+See README for more details:
 
-План построения:
-  1. База: Построение основания фланца овальной/стадионной формы (длина 116 мм, ширина 80 мм, радиус скругления торцов R40) высотой 13 мм вытягиванием (Extrude).
-  2. Ступень (Бобышка): Вытягивание центральной бобышки стадионной формы высотой 31 мм (от нижней плоскости) или на 18 мм вверх от фланца.
-  3. Основные отверстия: Выполнение 2 сквозных отверстий Ø28 мм с межосевым расстоянием 36 мм.
-  4. Крепежные отверстия с цековкой: Построение 6 отверстий с цековкой (проходное Ø7 мм сквозное, цековка Ø11 мм на глубину 6 мм), расположенных по контуру фланца.
-  5. Штифтовые отверстия: Построение 2 сквозных отверстий Ø5 мм для позиционирования.
+https://github.com/google-gemini/deprecated-generative-ai-python/blob/main/README.md
 
-Чертёж: пунктир/оси — не наружный контур; Штриховка на разрезе A-A показывает сечение материала (СЧ15), пунктир обозначает невидимые отверстия на главном виде
-Массивы: 2 центральных отверстия Ø28 на расстоянии 36 мм друг от друга; 6 отверстий с цековкой Ø7/Ø11 глубина 6 мм расположены симметрично по контуру фл; 2 отверстия Ø5 мм под штифты под углом 45° к оси
-⚠ Размер 116* является справочным (36 + 2 * R40 = 116)
-
-Если верно — «Строить». Если нет — размеры текстом.
-
-(строит долго, уже минут 7)
+  import google.generativeai as genai
+INFO:httpx:HTTP Request: GET https://api.groq.com/openai/v1/models "HTTP/1.1 200 OK"
+INFO:compas.llm:LLM try gemini:gemini-3.6-flash
+INFO:httpx:HTTP Request: POST https://api.telegram.org/bot8976285082:AAFmJbtek7CPqHJOZoWSsuzx4Xxa8TdEdck/getUpdates "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: POST https://api.telegram.org/bot8976285082:AAFmJbtek7CPqHJOZoWSsuzx4Xxa8TdEdck/getUpdates "HTTP/1.1 200 OK"
+INFO:compas.llm:LLM try gemini:gemini-3.6-flash
 
 
-повис вроде как 
-
-оказалось нужно открыть компас для того чтобы отправить изображение, причем скрин не с рабочей поверхности (все отверстия внизу детали, а я увидел скрин поверхности сбоку, где эти отверстия даже не видны, причем деталь видно что корявая, он ее все равно моментально отправил)
+при создании: Создай замкнутый профиль в плоскости XY. Верхняя и нижняя границы профиля — плавные Bezier spline по 6–8 узлам. Передняя кромка плавно соединяет верхнюю и нижнюю кривые. Задняя кромка состоит из короткого прямого участка. Замкни профиль и вытяни его на 8 мм.
+вывод: Не удалось построить.
+КОМПАС: spline: ksBezier/ksEndObj недоступны в текущем API5
