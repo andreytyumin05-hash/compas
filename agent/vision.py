@@ -42,7 +42,7 @@ IMPORTANT INTERPRETATION RULES:
 - Repeated identical holes must be represented as pattern_holes with count + PCD where the drawing supports it.
 - Different hole diameters/locations are separate features.
 - Counterbore and countersink must preserve pilot diameter, larger diameter and depth when readable.
-- A stepped shaft/plug/fitting must be represented as multiple cylindrical additive steps, one diameter/length per step.
+- A stepped shaft/plug/fitting must describe its cylindrical sections, shoulders and axial lengths explicitly; code generation MUST prefer one longitudinal half-profile + revolve for a turned axisymmetric body.
 - Never replace a cylindrical stepped part by a rectangle.
 - Build order must be explicit: base -> added material -> cuts -> patterns -> chamfer/fillet.
 - Every feature in the drawing that matters to the solid model must appear in features and build_plan.
@@ -53,7 +53,6 @@ IMPORTANT INTERPRETATION RULES:
 
 
 def _extract_json(text: str) -> Dict[str, Any]:
-    """Extract one JSON object robustly from fenced/prose model output."""
     raw = (text or "").strip()
     if not raw:
         raise ValueError("Vision returned an empty response")
@@ -89,7 +88,7 @@ def _gemini_candidates() -> List[str]:
     return ordered
 
 
-def _analyze_gemini_new_sdk(image_bytes: bytes, mime: str) -> Dict[str, Any]:
+def _analyze_gemini(image_bytes: bytes, mime: str) -> Dict[str, Any]:
     from google import genai
     from google.genai import types
 
@@ -121,37 +120,6 @@ def _analyze_gemini_new_sdk(image_bytes: bytes, mime: str) -> Dict[str, Any]:
                 continue
             raise RuntimeError(f"Gemini [{model_name}]: {exc}") from exc
     raise RuntimeError(f"Gemini models unavailable; last={last_err}")
-
-
-def _analyze_gemini_legacy(image_bytes: bytes, mime: str) -> Dict[str, Any]:
-    import google.generativeai as genai
-
-    key = os.getenv("GEMINI_API_KEY", "").strip()
-    if not key:
-        raise RuntimeError("GEMINI_API_KEY is not set")
-    genai.configure(api_key=key)
-    for model_name in _gemini_candidates():
-        try:
-            model = genai.GenerativeModel(model_name)
-            response = model.generate_content(
-                [_VISION_PROMPT, {"mime_type": mime, "data": image_bytes}],
-                generation_config={"temperature": 0.0},
-            )
-            text = getattr(response, "text", None) or ""
-            if text.strip():
-                return _extract_json(text)
-        except Exception as exc:
-            if any(x in str(exc).lower() for x in ("404", "not found", "no longer available", "unsupported")):
-                continue
-            raise RuntimeError(f"Gemini legacy [{model_name}]: {exc}") from exc
-    raise RuntimeError("Legacy Gemini SDK could not produce a response")
-
-
-def _analyze_gemini(image_bytes: bytes, mime: str) -> Dict[str, Any]:
-    try:
-        return _analyze_gemini_new_sdk(image_bytes, mime)
-    except ImportError:
-        return _analyze_gemini_legacy(image_bytes, mime)
 
 
 def _analyze_openrouter(image_bytes: bytes, mime: str) -> Dict[str, Any]:
