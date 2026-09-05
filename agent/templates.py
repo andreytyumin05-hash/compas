@@ -36,15 +36,17 @@ def try_template(task: str) -> Optional[str]:
             if outer > inner > 0:
                 return (
                     "from core import Part\n\n"
-                    'D_OUT = %.12g\nD_IN = %.12g\nL = %.12g\n\n'
                     'part = Part.create("Втулка")\n'
+                    "part.param('D_OUT', {o:g})\n"
+                    "part.param('D_IN', {i:g})\n"
+                    "part.param('L', {l:g})\n"
                     'with part.sketch("xy") as sk:\n'
-                    '    sk.circle(0, 0, D_OUT / 2)\n'
-                    '    sk.dim_radial(0, 0, D_OUT / 2)\n'
-                    'part.extrude(sk, depth=L)\n'
-                    'part.hole(0, 0, diameter=D_IN, through_all=True)\n'
-                    'part.update()\n'
-                ) % (outer, inner, length)
+                    "    sk.circle(0, 0, part.p('D_OUT') / 2)\n"
+                    "    sk.dim_radial(0, 0, part.p('D_OUT') / 2)\n"
+                    "part.extrude(sk, depth=part.p('L'))\n"
+                    "part.hole(0, 0, diameter=part.p('D_IN'), through_all=True)\n"
+                    "part.update()\n"
+                ).format(o=outer, i=inner, l=length)
 
     if ("плит" in low or "plate" in low) and "бобыш" not in low and "карман" not in low:
         match = re.search(r"(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)", text, re.I)
@@ -53,12 +55,14 @@ def try_template(task: str) -> Optional[str]:
             length, width = map(float, match.groups())
             return (
                 "from core import Part\n\n"
-                'L = %.12g\nW = %.12g\nT = %.12g\n\n'
                 'part = Part.create("Плита")\n'
+                "part.param('L', {L:g})\n"
+                "part.param('W', {W:g})\n"
+                "part.param('T', {T:g})\n"
                 'with part.sketch("xy") as sk:\n'
-                '    sk.rectangle(-L/2, -W/2, L, W)\n'
-                '    sk.dim_rect(-L/2, -W/2, L, W)\n'
-                'part.extrude(sk, depth=T)\n'
-                'part.update()\n'
-            ) % (length, width, thickness)
+                "    sk.rectangle(-part.p('L')/2, -part.p('W')/2, part.p('L'), part.p('W'))\n"
+                "    sk.dim_rect(-part.p('L')/2, -part.p('W')/2, part.p('L'), part.p('W'))\n"
+                "part.extrude(sk, depth=part.p('T'))\n"
+                "part.update()\n"
+            ).format(L=length, W=width, T=thickness)
     return None

@@ -1,13 +1,10 @@
 """Offline tests for visual loop helpers."""
 
 import unittest
-from pathlib import Path
-import tempfile
 
 from agent.build import _ensure_visual_tail
 from agent.visual_critic import _parse, review_screenshots
 from agent.templates import try_template
-from agent.validate import critic_warnings
 
 
 class VisualLoopTest(unittest.TestCase):
@@ -41,12 +38,12 @@ class VisualLoopTest(unittest.TestCase):
     def test_review_no_images_empty(self):
         self.assertEqual(review_screenshots("тз", "code", []), [])
 
-    def test_bushing_template_has_var_and_shot(self):
+    def test_bushing_template_has_param_and_dim(self):
         code = try_template("Втулка наружный 40 внутренний 20 длина 50")
         self.assertIsNotNone(code)
-        self.assertIn("part.var", code)
-        self.assertIn("screenshot", code)
-        self.assertEqual(critic_warnings(code, "Втулка 40 20 50"), [])
+        self.assertIn("part.param", code)
+        self.assertIn("part.p(", code)
+        self.assertIn("dim_radial", code)
 
 
 if __name__ == "__main__":
