@@ -5,10 +5,9 @@ using System.Reflection;
 namespace CompasAiCad
 {
     /// <summary>
-    /// Native KOMPAS IPropertyManager adapter. The Automation calls follow the v23
-    /// signatures: CreatePropertyManager(bool), PropertyTabs.Add(BSTR), and
-    /// PropertyControls.Add(ControlTypeEnum). The host keeps the interface alive
-    /// for the lifetime of the add-in and falls back to WinForms on COM mismatch.
+    /// Native KOMPAS IPropertyManager adapter. Uses the documented Automation
+    /// signatures for v23 and keeps the panel interface alive for its lifetime.
+    /// UI actions remain in the proven bridge until event wiring is added.
     /// </summary>
     internal sealed class PropertyManagerBackend : IDisposable
     {
@@ -19,7 +18,6 @@ namespace CompasAiCad
         private object _statusEdit;
 
         public bool IsReady { get; private set; }
-        public object Manager => _manager;
 
         public bool TryOpen(object kompasApplication)
         {
@@ -29,7 +27,6 @@ namespace CompasAiCad
 
             try
             {
-                // true = library-created property panel.
                 _manager = Invoke(kompasApplication, "CreatePropertyManager", true);
                 if (_manager == null)
                     return false;
@@ -38,11 +35,11 @@ namespace CompasAiCad
                 TrySet(_manager, "Label", "AI CAD");
                 TrySet(_manager, "ActivateOnCreate", true);
 
-                object tabs = Get(_manager, "PropertyTabs");
+                var tabs = Get(_manager, "PropertyTabs");
                 if (tabs == null)
                     return false;
 
-                // KOMPAS v23: IPropertyTabs::Add(BSTR caption)
+                // IPropertyTabs::Add(BSTR caption)
                 _tab = Invoke(tabs, "Add", "AI CAD");
                 if (_tab == null)
                     return false;
@@ -54,7 +51,7 @@ namespace CompasAiCad
                 if (_controls == null)
                     return false;
 
-                // KOMPAS v23: IPropertyControls::Add(ControlTypeEnum)
+                // IPropertyControls::Add(ControlTypeEnum)
                 _commandEdit = Invoke(_controls, "Add", 4); // ksControlEditStr
                 if (_commandEdit == null)
                     return false;
@@ -81,24 +78,6 @@ namespace CompasAiCad
                 Dispose();
                 return false;
             }
-        }
-
-        public string ReadCommand()
-        {
-            if (!IsReady || _commandEdit == null)
-                return string.Empty;
-            try
-            {
-                return Convert.ToString(Get(_commandEdit, "Value"), CultureInfo.InvariantCulture) ?? string.Empty;
-            }
-            catch { return string.Empty; }
-        }
-
-        public void SetStatus(string value)
-        {
-            if (_statusEdit == null)
-                return;
-            TrySet(_statusEdit, "Value", value ?? string.Empty);
         }
 
         private static object Invoke(object target, string name, params object[] args)
