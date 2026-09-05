@@ -1,5 +1,4 @@
-"""
-Проверка кода до запуска в КОМПАС.
+"""Проверка кода до запуска в КОМПАС.
 Проверяет структуру, supported API и наличие обязательной параметризации.
 """
 
@@ -9,26 +8,20 @@ import json
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
-KNOWN_PART_METHODS = frozenset(
-    {
-        "create", "from_active", "sketch", "extrude", "cut", "revolve", "get_edges",
-        "chamfer", "fillet", "fillet_edge", "chamfer_edge", "hole",
-        "pattern_holes_circular", "pattern_holes_rect", "pattern_holes_points",
-        "pattern_holes_linear", "hole_list", "mirror_points", "slot", "step", "boss",
-        "hex_boss", "ring_groove", "groove", "keyway", "pocket", "counterbore",
-        "countersink", "export", "export_formats", "close", "mass_properties", "update",
-        "param", "p", "params_dict", "param_graph", "name", "var", "set_properties",
-        "get_context", "set_view", "screenshot",
-    }
-)
+KNOWN_PART_METHODS = frozenset({
+    "create", "from_active", "sketch", "extrude", "cut", "revolve", "get_edges",
+    "chamfer", "fillet", "fillet_edge", "chamfer_edge", "hole", "pattern_holes_circular",
+    "pattern_holes_rect", "pattern_holes_points", "pattern_holes_linear", "hole_list",
+    "mirror_points", "slot", "step", "boss", "hex_boss", "ring_groove", "groove",
+    "keyway", "pocket", "counterbore", "countersink", "export", "export_formats", "close",
+    "mass_properties", "update", "param", "p", "params_dict", "param_graph", "name",
+    "var", "set_properties", "get_context", "set_view", "screenshot",
+})
 
-_SKETCH_METHODS = frozenset(
-    {
-        "circle", "line", "arc", "rectangle", "rounded_rect", "stadium", "ellipse",
-        "polygon", "polyline", "arc_by_points", "spline", "bezier", "slot",
-        "dim_linear", "dim_radial", "dim_rect",
-    }
-)
+_SKETCH_METHODS = frozenset({
+    "circle", "line", "arc", "rectangle", "rounded_rect", "stadium", "ellipse", "polygon",
+    "polyline", "arc_by_points", "spline", "bezier", "slot", "dim_linear", "dim_radial", "dim_rect",
+})
 
 _FORBIDDEN = (
     "win32com", "pythoncom", "gencache", "Dispatch", "GetActiveObject",
@@ -75,7 +68,7 @@ def summarize_ops(code: str) -> Dict[str, int]:
     keys = (
         "extrude(", "cut(", "hole(", "pattern_holes", "circle(", "rectangle(",
         "rounded_rect(", "polygon(", "spline(", "bezier(", "fillet(", "chamfer(",
-        "boss(", "step(", "slot(", "pocket(", "counterbore(", "ring_groove(",
+        "boss(", "step(", "revolve(", "slot(", "pocket(", "counterbore(", "ring_groove(",
     )
     return {k.rstrip("("): c.lower().count(k.lower()) for k in keys}
 
@@ -87,17 +80,17 @@ def review_structure(task: str, code: str) -> List[str]:
     if not c.strip():
         return ["пустой код"]
 
-    t_lines = [
+    t = "\n".join(
         ln for ln in t.splitlines()
         if not ln.strip().startswith(("ops_order=", "правило:", "порядок:"))
-    ]
-    t = "\n".join(t_lines)
+    )
 
     n_ext = c.count("extrude(")
     n_cut = c.count("cut(")
     n_hole = c.count("hole(") + c.count("pattern_holes")
     n_circ = c.count("circle(")
     n_rect = c.count("rectangle(")
+    n_revolve = c.count("part.revolve(")
 
     unknown = unknown_part_calls(code)
     if unknown:
@@ -112,14 +105,20 @@ def review_structure(task: str, code: str) -> List[str]:
 
     cylindrical = (
         "body_style=cylindrical" in t
-        or any(w in t for w in ("пробк", "штуцер", "shaft", "втулк", "цилиндр", "fitting"))
+        or any(w in t for w in ("пробк", "штуцер", "shaft", "втулк", "цилиндр", "fitting", "осесимметр"))
         or re.search(r"\bвал\b", t) is not None
         or len(re.findall(r"(?:ø|∅)\s*\d+", t)) >= 2
     )
-    if cylindrical and n_rect > 0 and n_circ == 0:
-        issues.append("для цилиндрической/ступенчатой детали использован rectangle — нужны circle+extrude")
-    if cylindrical and n_ext < 2 and any(w in t for w in ("ступен", "уступ", "пробк", "feature=step", "feature=boss")):
-        issues.append("мало extrude для ступенчатой детали (ожидается >=2)")
+    turned = cylindrical and any(
+        w in t for w in ("ступен", "ступенчат", "шейк", "проточка", "переход", "вал", "штуцер", "пробк")
+    )
+
+    if cylindrical and n_rect > 0 and n_circ == 0 and n_revolve == 0:
+        issues.append("для цилиндрической/ступенчатой детали использован rectangle без revolve")
+    if turned and n_revolve == 0 and n_ext < 2 and any(
+        w in t for w in ("ступен", "ступенчат", "вал", "шейк")
+    ):
+        issues.append("для точёной/ступенчатой детали нужен revolve-профиль или несколько additive features")
 
     if any(w in t for w in ("карман", "углублен", "шестигранн", "выборк")) or "feature=pocket" in t or "feature=hex_pocket" in t:
         if n_cut == 0 and "pocket(" not in c and n_hole == 0:
@@ -141,8 +140,7 @@ def review_structure(task: str, code: str) -> List[str]:
         if "part.param(" not in c:
             issues.append("критические размеры не вынесены в part.param()")
 
-    if "depends_on=" in t or "parameter_relations:" in t or " = " in t and "parameters:" in t:
-        # Require at least the parameter API when the contract carries relations.
+    if "depends_on=" in t or "parameter_relations:" in t or (" = " in t and "parameters:" in t):
         if "part.param(" not in c or "part.p(" not in c:
             issues.append("параметрическая зависимость из contract не отражена в коде")
 
@@ -150,7 +148,7 @@ def review_structure(task: str, code: str) -> List[str]:
         issues.append("chamfer(size=...): используйте distance")
     if "part.update(" not in c:
         issues.append("нет part.update()")
-    if n_rect and not n_circ and (cylindrical or any(w in t for w in ("ø", "диаметр", "ступен", "бобыш", "пробк"))):
+    if n_rect and not n_circ and not n_revolve and (cylindrical or any(w in t for w in ("ø", "диаметр", "ступен", "бобыш", "пробк"))):
         issues.append("код похож на плиту, а ТЗ описывает круглую/ступенчатую геометрию")
 
     return list(dict.fromkeys(issues))
@@ -177,7 +175,8 @@ def llm_review(llm: Any, task: str, code: str) -> List[str]:
     prompt = (
         "Ты проверяешь Python-код для КОМПАС (core API) до выполнения.\n"
         "Ответь ТОЛЬКО JSON: {\"ok\": true/false, \"issues\": [\"...\"]}.\n"
-        "ok=true только если код реализует ВСЮ геометрию, реальные операции и заявленные параметрические связи.\n"
+        "ok=true только если код реализует ВСЮ геометрию, реальные операции и заявленные параметрические связи. "
+        "Для осесимметричных валов/штуцеров/пробок revolve предпочтительнее набора цилиндров.\n"
         "Не пиши код.\n\n"
         f"ТЗ:\n{task[:3000]}\n\n"
         f"Код:\n```python\n{code[:7000]}\n```\n"
