@@ -18,19 +18,16 @@ if ([string]::IsNullOrWhiteSpace($python)) {
 $csproj = Join-Path $PSScriptRoot 'csharp\CompasAiCad.csproj'
 $msbuild = $null
 
-# First try the standard Visual Studio discovery mechanism.
 $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
 if (Test-Path $vswhere) {
     $msbuild = & $vswhere -latest -products * -requires Microsoft.Component.MSBuild -find 'MSBuild\**\Bin\MSBuild.exe' | Select-Object -First 1
 }
 
-# Fall back to PATH if MSBuild is already exposed by the shell.
 if ([string]::IsNullOrWhiteSpace($msbuild)) {
     $cmd = Get-Command msbuild.exe -ErrorAction SilentlyContinue
     if ($cmd) { $msbuild = $cmd.Source }
 }
 
-# Support Visual Studio installed into a custom location (for example D:\VS_INST\PROGRAM).
 if ([string]::IsNullOrWhiteSpace($msbuild)) {
     $customRoots = @(
         $env:VSINSTALLDIR,
@@ -57,11 +54,14 @@ if ([string]::IsNullOrWhiteSpace($msbuild)) {
 $msbuild = (Resolve-Path $msbuild).Path
 Write-Host "Using MSBuild: $msbuild"
 
-Write-Host "[1/4] Building $csproj"
-& $msbuild $csproj /t:Build /p:Configuration=Release /p:Platform=x64 /m
-if ($LASTEXITCODE -ne 0) { throw "MSBuild failed with exit code $LASTEXITCODE" }
+Write-Host "[1/4] Restoring NuGet assets and building $csproj"
+& $msbuild $csproj /t:Restore,Build /p:Configuration=Release /p:Platform=x64 /m
+if ($LASTEXITCODE -ne 0) { throw "MSBuild restore/build failed with exit code $LASTEXITCODE" }
 
-$dll = Join-Path $PSScriptRoot 'csharp\bin\Release\CompasAiCad.dll'
+$dll = Join-Path $PSScriptRoot 'csharp\bin\x64\Release\net48\CompasAiCad.dll'
+if (-not (Test-Path $dll)) {
+    $dll = Join-Path $PSScriptRoot 'csharp\bin\Release\CompasAiCad.dll'
+}
 if (-not (Test-Path $dll)) { throw "Build output not found: $dll" }
 
 $regasm = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\RegAsm.exe'
