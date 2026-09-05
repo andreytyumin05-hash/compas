@@ -6,7 +6,8 @@ from .memory import few_shot_from_memory, latest_edit_context
 _API = '''
 ## ONLY supported core API
 from core import Part
-part = Part.create("Name")
+part = Part.create("Name")                 # new document
+part = Part.from_active()                  # EDIT MODE: operate on the currently open KOMPAS detail
 
 # Named parameters. Critical dimensions must be named; derived positions use expressions.
 part.param("W", 100)
@@ -75,8 +76,10 @@ _RULES = '''
 17. Put visible dimension calls near the geometry they describe.
 18. Engineering calculations are preliminary unless the supplied calculation context explicitly provides a validated method and assumptions. Never present an estimate as a certified design decision.
 19. If a standard/GOST result is supplied, use only dimensions actually supported by the research context. Preserve the standard identifier/source in comments only when useful for traceability.
-20. For an edit request, the latest model script/tree/context is the current design. Preserve everything not explicitly changed.
+20. For an edit request, the latest model script/tree/context and the currently open KOMPAS detail are the current design state. Preserve everything not explicitly changed.
 21. An edit request returns a COMPLETE replacement script, not a patch fragment.
+22. In EDIT MODE, use `Part.from_active()` exactly once and NEVER call `Part.create(...)`. The script must modify the open detail, not create a second document.
+23. In EDIT MODE add the exact marker comment `# COMPAS_EDIT_MODE` near the top so the validator can enforce active-document semantics.
 '''
 
 _ORDER = '''
@@ -88,6 +91,7 @@ _ORDER = '''
 - Use cuts for holes, pockets, slots, grooves, counterbores and countersinks.
 - Reuse named parameters. Never duplicate critical dimensions as magic numbers.
 - Preserve stated mechanical relations as expressions.
+- EDIT MODE should operate from the active document and its live feature tree; do not rely on a deleted temp file being present.
 '''
 
 
@@ -107,8 +111,8 @@ def get_system_prompt(task: str = "", *, extra_context: str = "") -> str:
 def build_user_prompt(task: str, *, extra_context: str = "") -> str:
     prompt = (
         "Generate the complete KOMPAS core script from this CAD_CONTRACT. "
-        "For edits, use the latest model context as the current design and modify only the requested delta. "
-        "Return only the final code.\n\n" + task.strip()
+        "For edits, use the currently open KOMPAS detail plus the latest model context as the current design and modify only the requested delta. "
+        "In EDIT MODE include `# COMPAS_EDIT_MODE` and `Part.from_active()`. Return only the final code.\n\n" + task.strip()
     )
     if extra_context:
         prompt += "\n\nENGINEERING CONTEXT (use as evidence, do not invent beyond it):\n" + extra_context[:9000]
@@ -120,10 +124,11 @@ def build_repair_prompt(task: str, bad_code: str, errors: list, *, extra_context
     prompt = (
         "Repair the script against the CAD_CONTRACT without deleting requested features. "
         "Preserve named parameters, latest-model intent and engineering constraints. "
+        "If this is EDIT MODE, retain `# COMPAS_EDIT_MODE` and `Part.from_active()` and do not create a new part. "
         "Return exactly one complete Python code block.\n\n"
         f"VALIDATION ISSUES:\n{err}\n\n"
         f"CAD_CONTRACT:\n{task.strip()}\n\n"
-        f"CURRENT SCRIPT:\n```python\n{(bad_code or '')[:9000]}\n```\n"
+        f"CURRENT SCRIPT:\n```python\n{(bad_code or '')[:10000]}\n```\n"
     )
     if extra_context:
         prompt += "\nENGINEERING CONTEXT:\n" + extra_context[:9000]
