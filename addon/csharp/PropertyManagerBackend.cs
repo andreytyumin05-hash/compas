@@ -1,8 +1,13 @@
 using System;
 using System.Reflection;
+using System.Runtime.InteropServices;
 
 namespace CompasAiCad
 {
+    /// <summary>
+    /// Hosts a WinForms HWND inside KOMPAS IPropertyManager via ksControlUserWindow (type 47).
+    /// Reflection-based for COM compatibility across KOMPAS builds.
+    /// </summary>
     internal sealed class PropertyManagerBackend : IDisposable
     {
         private object _manager;
@@ -10,57 +15,100 @@ namespace CompasAiCad
         private object _hostControl;
 
         public bool IsReady { get; private set; }
-        public object Manager => _manager;
 
-        public bool TryOpen(object kompasApplication, IntPtr childHandle)
+        public bool TryOpen(object kompas, IntPtr hwnd, int preferredWidth = 300, int preferredHeight = 520)
         {
-            Dispose();
-            if (kompasApplication == null || childHandle == IntPtr.Zero) return false;
+            if (kompas == null || hwnd == IntPtr.Zero) return false;
             try
             {
-                _manager = Invoke(kompasApplication, "CreatePropertyManager", false);
-                if (_manager == null) return false;
-                TrySet(_manager, "Caption", "AI CAD");
-                TrySet(_manager, "Label", "AI CAD");
-                TrySet(_manager, "ActivateOnCreate", true);
+                object manager = Get(kompas, "PropertyManager")
+                                 ?? Invoke(kompas, "GetPropertyManager")
+                                 ?? Get(kompas, "IPropertyManager");
+                if (manager == null) return false;
 
-                object tabs = Get(_manager, "PropertyTabs");
-                if (tabs == null) return false;
-                _tab = Invoke(tabs, "Add", "AI CAD");
-                if (_tab == null) return false;
-                TrySet(_tab, "Name", "AI CAD");
-                TrySet(_tab, "Caption", "AI CAD");
+                object tab = null;
+                try { tab = Invoke(manager, "CreateTab", "AI CAD"); } catch { }
+                if (tab == null)
+                {
+                    try { tab = Invoke(manager, "AddTab", "AI CAD"); } catch { }
+                }
+                if (tab == null)
+                {
+                    try { tab = Get(manager, "ActiveTab"); } catch { }
+                }
+                if (tab == null) return false;
 
-                object controls = Get(_tab, "PropertyControls");
-                if (controls == null) return false;
-                _hostControl = Invoke(controls, "Add", 47); // ksControlUserWindow
-                if (_hostControl == null) return false;
-                if (!TryAttachWindow(_hostControl, childHandle)) return false;
+                object control = null;
+                foreach (string method in new[] { "CreateControl", "AddControl", "NewControl" })
+                {
+                    if (control != null) break;
+                    foreach (object typeArg in new object[] { (short)47, 47, "ksControlUserWindow" })
+                    {
+                        try
+                        {
+                            control = Invoke(tab, method, typeArg, "AI CAD Host");
+                            if (control != null) break;
+                        }
+                        catch { }
+                        try
+                        {
+                            control = Invoke(tab, method, typeArg);
+                            if (control != null) break;
+                        }
+                        catch { }
+                    }
+                }
+                if (control == null) return false;
 
-                try { Invoke(_manager, "ShowTabs"); } catch { }
-                TrySet(_manager, "Visible", true);
+                TrySet(control, "Name", "CompasAiCadHost");
+                TrySet(control, "Caption", "AI CAD");
+                TrySet(control, "Visible", true);
+                TrySet(control, "Width", preferredWidth);
+                TrySet(control, "Height", preferredHeight);
+
+                if (!BindHwnd(control, hwnd)) return false;
+
+                try { Invoke(manager, "ShowTabs"); } catch { }
+                try { Invoke(manager, "Show"); } catch { }
+                try { Invoke(tab, "Activate"); } catch { }
+                try { Invoke(manager, "Update"); } catch { }
+
+                _manager = manager;
+                _tab = tab;
+                _hostControl = control;
                 IsReady = true;
                 return true;
             }
-            catch { Dispose(); return false; }
+            catch
+            {
+                IsReady = false;
+                return false;
+            }
         }
 
-        private static bool TryAttachWindow(object target, IntPtr hwnd)
+        private static bool BindHwnd(object target, IntPtr hwnd)
         {
-            foreach (string prop in new[] { "WindowHandle", "Handle", "Hwnd", "HWND" })
+            foreach (string prop in new[] { "WindowHandle", "Handle", "Hwnd", "HWND", "hWnd" })
                 if (TrySetHandle(target, prop, hwnd)) return true;
-            foreach (string method in new[] { "SetWindowHandle", "SetHandle", "SetHwnd" })
+
+            foreach (string method in new[] { "SetWindowHandle", "SetHandle", "SetHwnd", "SetWindow" })
             {
-                foreach (object arg in new object[] { hwnd.ToInt64(), hwnd })
+                foreach (object arg in new object[] { hwnd.ToInt64(), hwnd.ToInt32(), hwnd })
                 {
-                    try { Invoke(target, method, arg); return true; } catch { }
+                    try
+                    {
+                        Invoke(target, method, arg);
+                        return true;
+                    }
+                    catch { }
                 }
             }
-            foreach (string innerName in new[] { "Window", "UserWindow", "PropertyUserWindow" })
+
+            foreach (string innerName in new[] { "Window", "UserWindow", "PropertyUserWindow", "Control" })
             {
                 object inner = Get(target, innerName);
                 if (inner == null) continue;
-                foreach (string prop in new[] { "WindowHandle", "Handle", "Hwnd", "HWND" })
+                foreach (string prop in new[] { "WindowHandle", "Handle", "Hwnd", "HWND", "hWnd" })
                     if (TrySetHandle(inner, prop, hwnd)) return true;
             }
             return false;
@@ -68,11 +116,14 @@ namespace CompasAiCad
 
         private static bool TrySetHandle(object target, string property, IntPtr hwnd)
         {
-            foreach (object value in new object[] { hwnd.ToInt64(), hwnd })
+            foreach (object value in new object[] { hwnd.ToInt64(), hwnd.ToInt32(), hwnd })
             {
                 try
                 {
-                    target.GetType().InvokeMember(property, BindingFlags.SetProperty | BindingFlags.Public | BindingFlags.Instance, null, target, new[] { value });
+                    target.GetType().InvokeMember(
+                        property,
+                        BindingFlags.SetProperty | BindingFlags.Public | BindingFlags.Instance,
+                        null, target, new[] { value });
                     return true;
                 }
                 catch { }
@@ -81,17 +132,32 @@ namespace CompasAiCad
         }
 
         private static object Invoke(object target, string name, params object[] args) =>
-            target.GetType().InvokeMember(name, BindingFlags.InvokeMethod | BindingFlags.GetProperty | BindingFlags.Public | BindingFlags.Instance, null, target, args);
+            target.GetType().InvokeMember(
+                name,
+                BindingFlags.InvokeMethod | BindingFlags.GetProperty | BindingFlags.Public | BindingFlags.Instance,
+                null, target, args);
 
         private static object Get(object target, string name)
         {
-            try { return target.GetType().InvokeMember(name, BindingFlags.GetProperty | BindingFlags.Public | BindingFlags.Instance, null, target, null); }
+            try
+            {
+                return target.GetType().InvokeMember(
+                    name,
+                    BindingFlags.GetProperty | BindingFlags.Public | BindingFlags.Instance,
+                    null, target, null);
+            }
             catch { return null; }
         }
 
         private static void TrySet(object target, string name, object value)
         {
-            try { target.GetType().InvokeMember(name, BindingFlags.SetProperty | BindingFlags.Public | BindingFlags.Instance, null, target, new[] { value }); }
+            try
+            {
+                target.GetType().InvokeMember(
+                    name,
+                    BindingFlags.SetProperty | BindingFlags.Public | BindingFlags.Instance,
+                    null, target, new[] { value });
+            }
             catch { }
         }
 
