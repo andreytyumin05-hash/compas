@@ -21,11 +21,14 @@ def normalize_code(code: str) -> str:
 
 
 def semantic_warnings(code: str) -> List[str]:
-    """Non-blocking warnings for suspicious but not necessarily invalid code."""
     warnings: List[str] = []
     low = (code or "").lower()
-    if "part.extrude(" in low and low.count("part.extrude(") == 1 and "cylindrical_steps" in low:
-        warnings.append("цилиндрическая ступенчатая деталь имеет только одно extrude")
+    if (
+        "cylindrical_steps" in low
+        and low.count("part.extrude(") == 1
+        and "part.revolve(" not in low
+    ):
+        warnings.append("цилиндрическая ступенчатая деталь имеет только одно additive extrude")
     if "dim_" not in low:
         warnings.append("в скрипте нет размерных annotations; редактирование будет менее наглядным")
     return warnings
@@ -87,20 +90,26 @@ def check_task_feature_requirements(task: str, code: str) -> List[str]:
         require(_method_present(low_c, "slot", "keyway"), "slot/keyway")
     if feats & {"boss"}:
         require(_method_present(low_c, "boss", "hex_boss"), "boss")
-    if feats & {"step", "extrude_body"}:
-        require(_method_present(low_c, "extrude", "step", "boss"), "base/additive feature")
 
-    cylindrical = "body_style=cylindrical_steps" in low_t or any(
-        word in low_t for word in ("пробк", "штуцер", "shaft", "вал")
+    turned = "body_style=cylindrical_steps" in low_t or any(
+        word in low_t for word in ("пробк", "штуцер", "shaft", "вал", "втулк", "осесимметр")
     )
-    if cylindrical and any(word in low_t for word in ("ступен", "step=")):
-        n_add = low_c.count("part.extrude(") + low_c.count("part.step(") + low_c.count("part.boss(") + low_c.count("part.hex_boss(")
-        if n_add < 2:
-            missing.append("multiple additive steps")
-    if cylindrical and "part.extrude(" not in low_c and "part.step(" not in low_c and "part.boss(" not in low_c:
+    if feats & {"step", "extrude_body"}:
+        require(_method_present(low_c, "extrude", "step", "boss", "revolve"), "base/additive feature")
+    if turned and any(word in low_t for word in ("ступен", "step=")):
+        # A single revolve is a preferred and valid representation of all
+        # coaxial steps. Do not force multiple independent cylinders.
+        n_add = (
+            low_c.count("part.extrude(")
+            + low_c.count("part.step(")
+            + low_c.count("part.boss(")
+            + low_c.count("part.hex_boss(")
+        )
+        if n_add < 2 and "part.revolve(" not in low_c:
+            missing.append("multiple additive steps or one revolved profile")
+    if turned and not _method_present(low_c, "extrude", "step", "boss", "revolve"):
         missing.append("cylindrical base")
 
-    # Free-form text path, used for manual Telegram descriptions.
     if not feats:
         if any(word in low_t for word in ("отверст", "крепеж")):
             require(_method_present(low_c, "hole", "pattern_holes_circular", "pattern_holes_linear", "pattern_holes_points", "pattern_holes_rect", "hole_list"), "hole")
@@ -119,5 +128,4 @@ def check_task_feature_requirements(task: str, code: str) -> List[str]:
 
 
 def must_fix_holes(code: str) -> bool:
-    """Compatibility shim: real coverage checking is now task-aware."""
     return False
