@@ -15,6 +15,7 @@ from rich.syntax import Syntax
 
 from .code_fix import normalize_code, must_fix_holes
 from .critic import review_before_build
+from .engineering_context import build_engineering_context
 from .memory import remember
 from .prompts import build_repair_prompt, get_system_prompt
 from .runner import Agent
@@ -36,7 +37,7 @@ def execute_code(code: str) -> None:
 
 def _ensure_visual_tail(code: str) -> str:
     text = code or ""
-    if "screenshot(" in text or "part.verify(" in text:
+    if "screenshot(" in text or "part.verify(" in text or "_auto_" in text:
         return text
     if "part.update()" not in text:
         return text
@@ -85,16 +86,19 @@ def run_task(task: str, *, max_com_retries: int = 3, visual_loop: Optional[bool]
     )
     normalized = " ".join(normalized.replace(">>", " ").replace("|", " ").split())
 
-    # Vision-derived contracts should always be inspected once after build.
-    # Text-only jobs keep the old opt-in behavior to avoid unnecessary latency.
-    is_vision_task = "CAD_CONTRACT v2" in normalized or "drawing2model" in normalized.lower()
+    is_vision_task = "CAD_CONTRACT v2" in normalized or "CAD_CONTRACT v3" in normalized or "drawing2model" in normalized.lower()
     if visual_loop is None:
         explicit = os.getenv("COMPAS_VISUAL_LOOP")
         visual_loop = (explicit.strip().lower() in {"1", "true", "yes"}) if explicit is not None else is_vision_task
 
+    engineering = build_engineering_context(normalized)
     agent = Agent()
     started = time.time()
-    code, errors = agent.generate_checked(normalized, max_retries=max(2, max_com_retries))
+    code, errors = agent.generate_checked(
+        normalized,
+        max_retries=max(2, max_com_retries),
+        context=engineering,
+    )
     if errors or must_fix_holes(code):
         raise RuntimeError("Код не прошёл проверку: " + "; ".join((errors or []) + (["hole coverage"] if must_fix_holes(code) else [])))
 
@@ -109,13 +113,13 @@ def run_task(task: str, *, max_com_retries: int = 3, visual_loop: Optional[bool]
             raise TimeoutError("build exceeded COMPAS_BUILD_TIMEOUT_SEC")
         try:
             execute_code(final)
+            tree_text = ""
             if visual_loop and time.time() - started < max_wall:
                 try:
                     from core import Part
-
                     part = Part.from_active()
                     vres = live_verify(part, work / "shots", views=["top", "front", "iso"])
-                    tree = snapshot_feature_tree(part)
+                    tree_text = snapshot_feature_tree(part)
                     shots = _collect_shots(vres, work / "shots")
                     issues: List[str] = []
                     if shots and time.time() - started < max_wall - min(vlm_deadline, 60):
@@ -123,15 +127,14 @@ def run_task(task: str, *, max_com_retries: int = 3, visual_loop: Optional[bool]
                             normalized,
                             final,
                             shots,
-                            context={"tree": tree[:6000], "verify": vres},
+                            context={"tree": tree_text[:6000], "verify": vres},
                         )
                     if issues:
-                        print("  👁 VLM:", "; ".join(issues)[:300])
                         if attempt + 1 < max_com_retries and time.time() - started < max_wall:
                             raw = agent.llm.chat(
                                 [
-                                    {"role": "system", "content": get_system_prompt(normalized)},
-                                    {"role": "user", "content": build_repair_prompt(normalized, final, issues + ["TREE/STATE:\n" + tree[:1200]])},
+                                    {"role": "system", "content": get_system_prompt(normalized, extra_context=engineering)},
+                                    {"role": "user", "content": build_repair_prompt(normalized, final, issues + ["TREE/STATE:\n" + tree_text[:1200]], extra_context=engineering)},
                                 ],
                                 temperature=0.1,
                             )
@@ -142,14 +145,13 @@ def run_task(task: str, *, max_com_retries: int = 3, visual_loop: Optional[bool]
                                 if good:
                                     final = _ensure_visual_tail(repaired)
                                     continue
-                                print("  ⚠ repair rejected:", "; ".join(critic_errors[:4]))
                     else:
-                        print("  👁 visual: ok/skip", f"shots={len(shots)}")
+                        tree_text = tree_text or ""
                 except Exception as exc:
-                    # A verification failure must never be turned into a fake CAD success.
-                    print(f"  👁 visual verification failed: {exc}")
+                    print(f"  visual verification failed: {exc}")
 
-            remember(task, final)
+            # Store exactly one latest context. Older contexts are overwritten.
+            remember(normalized, final, tree=tree_text, engineering=engineering)
             return final
         except Exception as exc:
             last_error = exc
@@ -158,8 +160,8 @@ def run_task(task: str, *, max_com_retries: int = 3, visual_loop: Optional[bool]
             try:
                 raw = agent.llm.chat(
                     [
-                        {"role": "system", "content": get_system_prompt(normalized)},
-                        {"role": "user", "content": build_repair_prompt(normalized, final, [str(exc)])},
+                        {"role": "system", "content": get_system_prompt(normalized, extra_context=engineering)},
+                        {"role": "user", "content": build_repair_prompt(normalized, final, [str(exc)], extra_context=engineering)},
                     ],
                     temperature=0.1,
                 )
