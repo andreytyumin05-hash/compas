@@ -1,8 +1,4 @@
-"""Automatic visible dimensions for common sketch primitives.
-
-Dimensions are created immediately after geometry when COMPAS_AUTO_DIM is enabled
-(default). A failed dimension annotation never invalidates otherwise valid geometry.
-"""
+"""Automatic visible dimensions and a real sketch rotation axis helper."""
 
 from __future__ import annotations
 
@@ -36,7 +32,7 @@ def apply_auto_dimension_patch() -> None:
     @wraps(original_line)
     def line(self, x1, y1, x2, y2, style=1):
         result = original_line(self, x1, y1, x2, y2, style=style)
-        if _enabled() and abs(float(x2) - float(x1)) + abs(float(y2) - float(y1)) > 1e-9:
+        if _enabled() and abs(float(x2) - float(x1)) + abs(float(y2) - float(y1)) > 1e-9 and int(style) != 3:
             try:
                 from .sketch_dims import linear_dimension
                 linear_dimension(self, float(x1), float(y1), float(x2), float(y2))
@@ -55,6 +51,11 @@ def apply_auto_dimension_patch() -> None:
                 pass
         return result
 
+    def axis_line(self, x1, y1, x2, y2):
+        """Add a sketch construction axis used by a revolve profile."""
+        return original_line(self, x1, y1, x2, y2, style=3)
+
     Sketch.circle = circle  # type: ignore[attr-defined]
     Sketch.line = line  # type: ignore[attr-defined]
     Sketch.rectangle = rectangle  # type: ignore[attr-defined]
+    Sketch.axis_line = axis_line  # type: ignore[attr-defined]
