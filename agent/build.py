@@ -28,6 +28,19 @@ _ROOT = Path(__file__).resolve().parent.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
+_EDIT_WORDS = (
+    "измени", "изменить", "передел", "исправь", "исправить", "поменяй", "поменять",
+    "замени", "заменить", "убери", "убрать", "удали", "удалить", "добавь", "добавить",
+    "доработ", "перенеси", "перемести", "смести", "увеличь", "увелич", "уменьши", "уменьш",
+    "пересчитай", "пересчитать", "эту деталь", "последн", "текущую модель", "предыдущ",
+    "edit request",
+)
+
+
+def _is_edit_task(task: str) -> bool:
+    low = (task or "").lower()
+    return any(word in low for word in _EDIT_WORDS)
+
 
 def execute_code(code: str) -> None:
     value = normalize_code(code)
@@ -73,21 +86,67 @@ def _collect_shots(verify_result: dict, work: Path) -> List[Path]:
     return shots
 
 
+def _active_live_context() -> str:
+    """Read the currently open KOMPAS part before edit generation."""
+    try:
+        from core import Part
+        part = Part.from_active()
+        tree = snapshot_feature_tree(part)
+        lines = [
+            "LIVE ACTIVE KOMPAS DOCUMENT = current open detail, source of truth for edit.",
+            f"ACTIVE PART NAME: {part.name}",
+        ]
+        if tree:
+            lines.append("ACTIVE FEATURE TREE:\n" + tree[:10000])
+        return "\n\n".join(lines)
+    except Exception as exc:
+        raise RuntimeError(f"Для режима изменения нужна открытая 3D-деталь КОМПАС: {exc}") from exc
+
+
 def run_task(task: str, *, max_com_retries: int = 3, visual_loop: Optional[bool] = None) -> str:
     normalized = re.sub(r"^\s*(?:распознал\s+так|detected|recognized)\s*[:\-]*\s*", "", (task or "").strip(), flags=re.I)
     normalized = " ".join(normalized.replace(">>", " ").replace("|", " ").split())
 
+    edit_mode = _is_edit_task(normalized)
     is_vision_task = "CAD_CONTRACT v2" in normalized or "CAD_CONTRACT v3" in normalized or "drawing2model" in normalized.lower()
     if visual_loop is None:
         explicit = os.getenv("COMPAS_VISUAL_LOOP")
         visual_loop = (explicit.strip().lower() in {"1", "true", "yes"}) if explicit is not None else is_vision_task
 
     engineering = build_engineering_context(normalized)
+    if edit_mode:
+        live_context = _active_live_context()
+        engineering = (engineering + "\n\n" if engineering else "") + live_context
+
     agent = Agent()
     started = time.time()
     code, errors = agent.generate_checked(normalized, max_retries=max(2, max_com_retries), context=engineering)
     if errors or must_fix_holes(code):
         raise RuntimeError("Код не прошёл проверку: " + "; ".join((errors or []) + (["hole coverage"] if must_fix_holes(code) else [])))
+
+    if edit_mode and ("COMPAS_EDIT_MODE" not in code or "Part.from_active()" not in code or "Part.create(" in code):
+        repaired = ""
+        for _ in range(2):
+            raw = agent.llm.chat([
+                {"role": "system", "content": get_system_prompt(normalized, extra_context=engineering)},
+                {"role": "user", "content": build_repair_prompt(
+                    normalized,
+                    code,
+                    [
+                        "EDIT MODE contract violation: generated code must contain # COMPAS_EDIT_MODE, exactly one Part.from_active(), and no Part.create().",
+                        "The operation must target the currently open KOMPAS detail.",
+                    ],
+                    extra_context=engineering,
+                )},
+            ], temperature=0.1)
+            repaired = normalize_code(agent._extract_code(raw or ""))
+            ok, validation_errors = validate_generated_code(repaired)
+            if ok:
+                code = repaired
+                break
+            code = repaired
+        if not code or "COMPAS_EDIT_MODE" not in code or "Part.from_active()" not in code or "Part.create(" in code:
+            raise RuntimeError("LLM не сформировал безопасный edit-скрипт для открытой детали")
 
     final = _ensure_visual_tail(code)
     work = Path(tempfile.mkdtemp(prefix="compas_vis_"))
@@ -101,8 +160,6 @@ def run_task(task: str, *, max_com_retries: int = 3, visual_loop: Optional[bool]
         try:
             execute_code(final)
 
-            # Always capture a compact feature-tree snapshot after a successful build.
-            # For text jobs this adds useful edit context without taking screenshots.
             tree_text = ""
             try:
                 from core import Part
@@ -127,7 +184,7 @@ def run_task(task: str, *, max_com_retries: int = 3, visual_loop: Optional[bool]
                         ], temperature=0.1)
                         repaired = normalize_code(agent._extract_code(raw or ""))
                         ok, _ = validate_generated_code(repaired)
-                        if ok and repaired.strip():
+                        if ok:
                             good, _ = review_before_build(normalized, repaired, llm=None, use_llm=False)
                             if good:
                                 final = _ensure_visual_tail(repaired)
