@@ -1,4 +1,8 @@
-"""Реальный spline/Bezier через API5 KOMPAS-3D v23."""
+"""Реальный spline/Bezier через API5 KOMPAS-3D v23.
+
+Путь A: ksBezier + ksBezierPoint(GetParamStruct) + ksEndObj
+Путь B (форум): ksBezier + ksPoint + ksEndObj
+"""
 
 from __future__ import annotations
 
@@ -30,7 +34,6 @@ def _param_value(obj: Any, names: tuple[str, ...], value: Any) -> bool:
 
 
 def _handle_data(pts: list[tuple[float, float]], i: int, smooth: bool) -> tuple[float, float, float]:
-    """Return handle lengths and tangent angle for a smooth Bezier node."""
     if not smooth:
         return 0.0, 0.0, 0.0
     x, y = pts[i]
@@ -44,50 +47,47 @@ def _handle_data(pts: list[tuple[float, float]], i: int, smooth: bool) -> tuple[
         return math.hypot(vx, vy) * 0.30, 0.0, math.degrees(math.atan2(vy, vx))
     prev, nxt = pts[i - 1], pts[i + 1]
     vx, vy = nxt[0] - prev[0], nxt[1] - prev[1]
-    return (
-        math.hypot(x - prev[0], y - prev[1]) * 0.30,
-        math.hypot(nxt[0] - x, nxt[1] - y) * 0.30,
-        math.degrees(math.atan2(vy, vx)),
-    )
+    ang = math.degrees(math.atan2(vy, vx))
+    d = math.hypot(vx, vy) * 0.25
+    return d, d, ang
 
 
-def _create_bezier_point(
-    doc2d: Any,
-    kompas: Any,
-    pts: list[tuple[float, float]],
-    index: int,
-    smooth: bool,
-) -> None:
-    get_ps = getattr(kompas, "GetParamStruct", None)
-    point_fn = getattr(doc2d, "ksBezierPoint", None)
-    if not callable(get_ps) or not callable(point_fn):
-        raise KompasOperationError("spline: ksBezierPoint/GetParamStruct недоступны в API5")
-
-    param = get_ps(KO_BEZIER_POINT_PARAM)
-    if param is None:
-        raise KompasOperationError("spline: ksBezierPointParam is None")
-    try:
-        init = getattr(param, "Init", None)
-        if callable(init):
-            init()
-    except Exception:
-        pass
-
+def _create_bezier_point(doc2d: Any, kompas: Any, pts: list, index: int, smooth: bool) -> None:
     x, y = pts[index]
-    if not _param_value(param, ("x", "X"), float(x)) or not _param_value(param, ("y", "Y"), float(y)):
-        raise KompasOperationError("spline: не удалось задать x/y BezierPointParam")
-
     left_len, right_len, angle = _handle_data(pts, index, smooth)
-    _param_value(param, ("left", "Left"), float(left_len))
-    _param_value(param, ("right", "Right"), float(right_len))
-    _param_value(param, ("ang", "angle", "Angle"), float(angle))
-
+    get_ps = getattr(kompas, "GetParamStruct", None)
+    if not callable(get_ps):
+        raise KompasOperationError("GetParamStruct недоступен для ksBezierPoint")
     try:
-        result = point_fn(param)
+        param = get_ps(KO_BEZIER_POINT_PARAM)
     except Exception as exc:
-        raise KompasOperationError(f"ksBezierPoint({index}) failed: {exc}") from exc
+        raise KompasOperationError(f"GetParamStruct(BezierPoint): {exc}") from exc
+    if param is None:
+        raise KompasOperationError("GetParamStruct(BezierPoint) None")
+    _param_value(param, ("x", "X"), float(x))
+    _param_value(param, ("y", "Y"), float(y))
+    _param_value(param, ("angle", "Angle"), float(angle))
+    _param_value(param, ("leftLength", "LeftLength"), float(left_len))
+    _param_value(param, ("rightLength", "RightLength"), float(right_len))
+    fn = getattr(doc2d, "ksBezierPoint", None)
+    if not callable(fn):
+        raise KompasOperationError("ksBezierPoint отсутствует")
+    try:
+        result = fn(param)
+    except Exception as exc:
+        raise KompasOperationError(f"ksBezierPoint({index}): {exc}") from exc
     if not _ok(result):
         raise KompasOperationError(f"ksBezierPoint({index}) returned {result!r}")
+
+
+def _fill_points_simple(doc2d: Any, pts: list[tuple[float, float]]) -> None:
+    pt_fn = getattr(doc2d, "ksPoint", None)
+    if not callable(pt_fn):
+        raise KompasOperationError("spline: ksPoint недоступен")
+    for x, y in pts:
+        pr = pt_fn(float(x), float(y), 0)
+        if not _ok(pr):
+            raise KompasOperationError(f"ksPoint({x},{y}) failed: {pr!r}")
 
 
 def spline_impl(
@@ -100,7 +100,7 @@ def spline_impl(
     pts = [(float(x), float(y)) for x, y in points]
     minimum = 3 if smooth else 2
     if len(pts) < minimum:
-        raise KompasOperationError(f"spline: нужно >= {minimum} точек")
+        raise KompasOperationError(f"spline: нужно >= {minimum} точек (smooth={smooth})")
     if any(not math.isfinite(v) for p in pts for v in p):
         raise KompasOperationError("spline: координаты должны быть конечными")
 
@@ -111,23 +111,35 @@ def spline_impl(
         bezier = getattr(doc2d, "ksBezier", None)
         end_obj = getattr(doc2d, "ksEndObj", None)
         if not callable(bezier) or not callable(end_obj):
-            raise KompasOperationError("spline: ksBezier/ksEndObj недоступны в текущем API5")
+            raise KompasOperationError("spline: ksBezier/ksEndObj недоступны в API5")
 
         app = self._part.app
         kompas = getattr(app, "k5", None) or getattr(app, "app7", None)
-        if kompas is None or not callable(getattr(kompas, "GetParamStruct", None)):
-            raise KompasOperationError("spline: KompasObject.GetParamStruct недоступен")
 
         result = bezier(1 if closed else 0, int(style))
         if not _ok(result):
             raise KompasOperationError(f"ksBezier failed result={result!r}")
 
-        for i in range(len(pts)):
-            _create_bezier_point(doc2d, kompas, pts, i, smooth=smooth)
+        path = "bezier_point"
+        try:
+            if kompas is None or not callable(getattr(kompas, "GetParamStruct", None)):
+                raise KompasOperationError("no GetParamStruct")
+            for i in range(len(pts)):
+                _create_bezier_point(doc2d, kompas, pts, i, smooth=smooth)
+        except Exception:
+            path = "ksPoint"
+            try:
+                end_obj()
+            except Exception:
+                pass
+            result = bezier(1 if closed else 0, int(style))
+            if not _ok(result):
+                raise KompasOperationError(f"ksBezier restart failed: {result!r}")
+            _fill_points_simple(doc2d, pts)
 
         curve = end_obj()
         if not _ok(curve):
-            raise KompasOperationError(f"ksEndObj failed result={curve!r}")
+            raise KompasOperationError(f"ksEndObj failed path={path} result={curve!r}")
     except KompasOperationError:
         self._auto_end(was)
         raise
