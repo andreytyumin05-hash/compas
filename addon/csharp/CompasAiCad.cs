@@ -48,13 +48,19 @@ namespace CompasAiCad
             [In] short mode,
             [In, MarshalAs(UnmanagedType.IDispatch)] object kompas_)
         {
-            if (command != 1 || kompas_ == null)
+            if (command != 1)
                 return;
 
             try
             {
-                dynamic app = kompas_;
-                long handle = Convert.ToInt64(app.MainWindowHandle);
+                // The AddIn is executed inside the KOMPAS process. Getting the
+                // main window from the current process avoids invoking the API7
+                // IApplication COM object and therefore avoids an unnecessary
+                // type-library lookup that can produce 0x80029C4A.
+                long handle = Process.GetCurrentProcess().MainWindowHandle.ToInt64();
+                if (handle == 0)
+                    throw new InvalidOperationException("Не удалось получить главное окно КОМПАС-3D.");
+
                 _kompasHandle = new IntPtr(handle);
                 ShowPanel(_kompasHandle);
             }
